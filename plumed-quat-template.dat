@@ -1,0 +1,6 @@
+# The molecule is assumed to be made whole, otherwise this is needed.
+# WHOLEMOLECULES ENTITY0=1-330
+
+q: QUATERNION REFERENCE=VAR_REFFILE  NORM_DIRECTION=w
+
+PRINT STRIDE=1 ARG=q.w,q.x,q.y,q.z FILE=VAR_QFILE FMT=%16g
