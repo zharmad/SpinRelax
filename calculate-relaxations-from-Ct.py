@@ -214,7 +214,73 @@ def print_fitting_params_headers( names, values, units, bFit ):
         sumstr=sumstr+tmpstr
     return sumstr
 
-# File Input. Reading the data accordingly.
+# Read the formatted file headers in _fittedCt.dat. These are of the form:
+# # Residue: 1 
+# # Chi-value: 1.15659e-05 
+# # Param XXX: ### +- ###
+def read_fittedCt_file(filename):
+
+    resid=[]
+    param_name=[]
+    param_val=[]
+    tmp_name=[]
+    tmp_val=[]
+    for raw in open(filename):
+        if raw == "" or raw[0]!="#":
+            continue
+
+        line=raw.split()
+        if 'Residue' in line[1]:
+            resid.append(int(line[-1]))
+            if len(tmp_name)>0:
+                param_name.append(tmp_name)
+                tmp_name=[]
+            if len(tmp_val)>0:
+                param_val.append(tmp_val)
+                tmp_val=[]
+        elif 'Param' in line[1]:
+            tmp_name.append(line[2][:-1])
+            tmp_val.append(float(line[-3]))
+
+    if len(tmp_name)>0:
+        param_name.append(tmp_name)
+        tmp_name=[]
+    if len(tmp_val)>0:
+        param_val.append(tmp_val)
+        tmp_val=[]
+
+    if len(resid) != len(param_name) != len(param_val):
+        print >> sys.stderr, "= = ERROR in read_fittedCt_file: the header entries don't have the same number of residues as entries!"
+        sys.exit(1)
+    return resid, param_name, param_val
+
+def parse_parameters(names, values):
+
+    if len(names) != len(values):
+        print >> sys.stderr, "= = ERROR in parse_parameters! The lengths of names and values arrays are not the same!"
+        sys.exit(1)
+
+    S2=np.nan ; consts=[] ; taus=[] ; Sf=np.nan
+    for i in range(len(names)):
+        if names[i]=='S2_0':
+            S2=values[i]
+        elif 'C_' in names[i]:
+            consts.append(values[i])
+        elif 'tau_' in names[i]:
+            taus.append(values[i])
+        elif 'S2_fast'==names[i]:
+            Sf=values[i]
+        else:
+            print >> sys.stderr, "= = ERROR: parameter name not recognised! %s %s" % (names[i], values[i])
+
+    # Relic code for when order parameters are not explicitly written:
+    if np.isnan(S2):
+        S2 = 1.0-np.sum( consts )
+        Sf = 0.0
+    if np.isnan(Sf):
+        Sf = 1-S2-np.sum(consts)
+
+    return S2, consts, taus, Sf
 
 #def read_exp_relaxations(filename):
 #    """
@@ -242,13 +308,12 @@ def print_fitting_params_headers( names, values, units, bFit ):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='Obtain fitted Ct values and calculation of relaxation parameters'
+    parser = argparse.ArgumentParser(description='Read fitted-Ct values and calculation of relaxation parameters'
                                      'based on a combination of the local autocorrelation and global tumbling by assumption of'
                                      'separability: Ct= C_internal(t) * C_external(t).',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-f', '--infn', type=str, dest='in_Ct_fn', nargs='+',
-                        help='One or more autocorrelation functions from independent trajectories.'
-                             'If multiple C(t) are given, these will be averages before a single fitting is calculated.')
+    parser.add_argument('-f', '--infn', type=str, dest='in_Ct_fn',
+                        help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
     parser.add_argument('-v','--vecfn', type=str, dest='vecfn', default='none',
@@ -308,7 +373,7 @@ if __name__ == '__main__':
     time_start=time.clock()
 
     args = parser.parse_args()
-    in_file_list = args.in_Ct_fn
+    fittedCt_file = args.in_Ct_fn
     out_pref=args.out_pref
     bHaveDy = False
     if args.opt != 'none':
@@ -480,6 +545,7 @@ if __name__ == '__main__':
             sys.exit(1)
 
 # = = = Now that the basic stats habe been stored, check for --rigid shortcut.
+#       This shortcut will exit after this if statement is run.
     if args.bRigid:
         if diff_type == 'spherical':
             num_vecs=1 ; S2_list=[zeta] ; consts_list=[[0.]] ; taus_list=[[99999.]] ; vecXH=[]
@@ -495,102 +561,24 @@ if __name__ == '__main__':
         print "NOE:", str(datablock[2]).strip('[]')
         sys.exit()
 
-# = = = Read C(t), and averge if more than one
-    num_files = len(in_file_list)
-    print "= = = Found %d input C(t) files." % num_files
-    if (num_files == 1):
-        legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[0], 'legend')
-        legs = [ float(x) for x in legs ]
-        if diff_type != 'spherical':
-            sanity_check_two_list(legs, resNH, "resid from Ct versus vectors")
-    else:
-        print "    ...will perform averaging to obtain averaged C(t)."
-        print "    ....WARNING: untested. Please verify!"
-        dt_prev=[] ; Ct_list=[] ; Cterr_list=[]
-        for ind in range(num_files):
-            legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[ind], 'legend')
-            legs = [ float(x) for x in legs ]
-            if ind>0:
-                sanity_check_two_list(dt[0], dt_prev[0], "dt values in diffrent C(t) files")
-            if diff_type != 'spherical':
-                sanity_check_two_list(legs, resNH, "resid from Ct versus vectors")
-            dt_prev=dt ; Ct_list.append(Ct) ; Cterr_list.append(Cterr)
-        # = = = Ct_list is a list of 2D arrays.
-        # = = = Perform grand average over individual observations. Assuming equal weights (dangerous!)
-        Ct_list = np.array(Ct_list)
-        Ct = np.mean(Ct_list, axes=0)
-        if len(Cterr_list[0]) == 0:
-            Cterr = np.std(Ct_list, axes=0)
-        else:
-            shape=Ct.shape
-            Cterr_list = np.array(Cterr_list)
-            Cterr = np.zeros(shape)
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    Cterr[i,j] = gm.simple_total_mean_square(Ct_list[:,i,j], Cterr_list[:,i,j])
-        del Ct_list ; del Cterr_list
-        # = = = Write averaged Ct as part of reporting
-        out_fn = out_pref+'_averageCt.dat'
-        fp = open(out_fn, 'w')
-        for j in range(npts):
-            print >> fp, dt[i], Ct[j], Cterr[j]
-        print >> fp, '&'
-        fp.close()
-
-    sim_resid = legs
-    num_vecs = len(dt)
+# = = = Read fitted C(t). For each residue, we expect a set of parameters
+#       corresponding to S2 and the other parameters.
+    sim_resid, param_names, param_vals = read_fittedCt_file(fittedCt_file) 
+    num_vecs = len(sim_resid)
+    if diff_type != 'spherical':
+        sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct versus vectors")
 
     S2_list=[] ; taus_list=[] ; consts_list=[]
-    out_fn = out_pref+'_fittedCt.dat'
-    fp = open(out_fn, 'w')
-# = = = Fit simulated C(t) for each X-H vector with theoretical decomposition into a minimum number of time constants.
-#       This yields the fitting parameters required for the next step: the calculation of relaxations.
     for i in range(num_vecs):
-        print "...Running C(t)-fit for residue %i:" % sim_resid[i]
-        #chi, names, pars, errs, ymodel = fitCt.findbest_LSstyle_fits(x[i], y[i], dy[i])
-        if len(Cterr)!=0:
-            chi, names, pars, errs, ymodel = fitCt.findbest_Expstyle_fits(dt[i], Ct[i], Cterr[i], par_list=[2,3,5,7,9], threshold=1.0)
-        else:
-            chi, names, pars, errs, ymodel = fitCt.findbest_Expstyle_fits(dt[i], Ct[i], par_list=[2,3,5,7,9], threshold=1.0)
-        num_pars=len(names)
+        # Parse input parameters
+        S2, consts, taus, Sf = parse_parameters( param_names[i], param_vals[i] )
 
-        # Print header into Ct model file
-        print >> fp, '# Residue: %i ' % sim_resid[i]
-        print >> fp, '# Chi-value: %g ' % chi
-        for j in range(num_pars):
-            print >> fp, "# Param %s: %g +- %g" % (names[j], pars[j], errs[j])
-        #Print the fitted Ct model into file
-        print >> fp, "@s%d legend \"Res %d\"" % (i*2, sim_resid[i])
-        for j in range(len(ymodel)):
-#            print >> fp, dt[i][j], Ct[i][j], ymodel[j]
-            print >> fp, dt[i][j], ymodel[j]
-        print >> fp, '&'
-        for j in range(len(ymodel)):
-            print >> fp, dt[i][j], Ct[i][j]
-        print >> fp, '&'
-
-        if fmod( num_pars, 2 ) == 1:
-            #Sf is presumed to be too fast to contribute to scattering, and so is ignored.
-            #print >> sys.stderr, "= = WARNING: Small component of fit missing from further analysis, i.e. Sf component! "
-            S2     = pars[0]
-            consts = [ pars[k] for k in range(1,num_pars,2) ]
-            taus   = [ pars[k] for k in range(2,num_pars,2) ]
-            Sf     = 1-pars[0]-np.sum(consts)
-        else:
-            consts = [ pars[k] for k in range(0,num_pars,2) ]
-            taus   = [ pars[k] for k in range(1,num_pars,2) ]
-            S2     = 1.0 - np.sum( consts )
-            Sf     = 0.0
         # = = = This section applies zero-point corrections to S2, 0.89 = = =
         S2 *= zeta
         consts = [ k*zeta for k in consts ]
-        #S2 *= 0.89 ; consts = [ k*0.89 for k in consts ]
         S2_list.append(S2) ; taus_list.append(taus) ; consts_list.append(consts)
-# = = = End loop over each X-H vector, close the Ct model file, and print out final relaxation values.
-    fp.close()
-    print " = = Completed C(t)-fits."
 
-# = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
+    # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
     param_names=("Diso", "zeta", "CSA", "chi")
     param_scaling=( 1.0, zeta, 1.0e6, 1.0 )
     param_units=(relax_obj.time_unit, "a.u.", "ppm", "a.u." )

@@ -22,6 +22,8 @@ import sys
 #def func_LS_decay9(t, S2_0, S2_a, tau_a, S2_b, tau_b, S2_g, tau_g, S2_d, tau_d):
 #    return S2_0*(S2_a + (1-S2_a)*np.exp(-t/tau_a)) * (S2_b + (1-S2_b)*np.exp(-t/tau_b)) * (S2_g + (1-S2_g)*np.exp(-t/tau_g)) * (S2_d + (1-S2_d)*np.exp(-t/tau_d))
 
+# This is a series of exponential functions that are a simple sum of exponentials.
+# The odd-numbered  set allows the
 def func_exp_decay1(t, tau_a):
     return np.exp(-t/tau_a)
 def func_exp_decay2(t, A, tau_a):
@@ -40,6 +42,10 @@ def func_exp_decay8(t, A, tau_a, B, tau_b, G, tau_g, D, tau_d):
     return (1-A-B-G-D) + A*np.exp(-t/tau_a) + B*np.exp(-t/tau_b) + G*np.exp(-t/tau_g) + D*np.exp(-t/tau_d)
 def func_exp_decay9(t, S2, A, tau_a, B, tau_b, G, tau_g, D, tau_d):
     return S2 + A*np.exp(-t/tau_a) + B*np.exp(-t/tau_b) + G*np.exp(-t/tau_g) + D*np.exp(-t/tau_d)
+def func_exp_decay10(t, A, tau_a, B, tau_b, G, tau_g, D, tau_d, E, tau_e):
+    return (1-A-B-G-D-E) + A*np.exp(-t/tau_a) + B*np.exp(-t/tau_b) + G*np.exp(-t/tau_g) + D*np.exp(-t/tau_d) + E*np.exp(-t/tau_e)
+def func_exp_decay11(t, S2, A, tau_a, B, tau_b, G, tau_g, D, tau_d, E, tau_e):
+    return S2 + A*np.exp(-t/tau_a) + B*np.exp(-t/tau_b) + G*np.exp(-t/tau_g) + D*np.exp(-t/tau_d) + E*np.exp(-t/tau_e)
 
 def _return_parameter_names(num_pars):
     if num_pars==1:
@@ -60,8 +66,27 @@ def _return_parameter_names(num_pars):
          return ['C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d']
     elif num_pars==9:
          return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d']
+    elif num_pars==10:
+         return ['C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d', 'C_e', 'tau_e']
+    elif num_pars==11:
+         return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d', 'C_e', 'tau_e']
 
     return []
+
+
+
+def sort_parameters(num_pars, params):
+    if np.fmod( num_pars, 2 ) == 1:
+        S2     = params[0]
+        consts = [ params[k] for k in range(1,num_pars,2) ]
+        taus   = [ params[k] for k in range(2,num_pars,2) ]
+        Sf     = 1-params[0]-np.sum(consts)
+    else:
+        consts = [ params[k] for k in range(0,num_pars,2) ]
+        taus   = [ params[k] for k in range(1,num_pars,2) ]
+        S2     = 1.0 - np.sum( consts )
+        Sf     = 0.0
+    return S2, consts, taus, Sf
 
 def calc_chi(y1, y2, dy=[]):
     if dy != []:
@@ -182,6 +207,14 @@ def scan_LSstyle_fits(x, y, dy=[]):
 
     return chi_list, name_list, par_list, err_list, mod_list
 
+def run_Expstyle_fits(x, y, dy, npars):
+    names = _return_parameter_names(npars)
+    try:
+        chi, params, errors, ymodel = do_Expstyle_fit(npars, x, y, dy)
+    except:
+        print " ...fit returns an error! Continuing."
+
+    return chi, names, params, errors, ymodel
 
 #def findbest_LSstyle_fits(x, y, dy=[], bPrint=True):
 def findbest_Expstyle_fits(x, y, dy=[], bPrint=True, par_list=[2,3,5,7,9], threshold=0.5):
@@ -205,33 +238,6 @@ def findbest_Expstyle_fits(x, y, dy=[], bPrint=True, par_list=[2,3,5,7,9], thres
             chi_min=chi ; par_min=params ; err_min=errors ; npar_min=npars ; ymod_min=ymodel
         else:
             break
-#    chi_list=[] ; params_list=[] ; errors_list=[] ; ymodel_list=[] ; bBad=[]
-#    for npars in par_list:
-#        names = _return_parameter_names(npars)
-#        try:
-#            chi, params, errors, ymodel = do_Expstyle_fit(npars, x, y, dy)
-#        except:
-#            print " ...fit returns an error! Continuing."
-#            chi_list.append(np.inf) ; params_list.append([]) ; errors_list.append([]) ; ymodel_list.append([])
-#            bBad.append(True)
-#            continue
-#        bBad.append(False)
-#        chi_list.append(chi) ; params_list.append(params) ; errors_list.append(errors) ; ymodel_list.append(ymodel)
-#    for j in range(len(par_list)):
-#        if bBad[j]==True:
-#            continue
-#        for i in range(par_list[j]):
-#            if errors_list[j][i]>params_list[j][i]:
-#                chi_list[j]=np.inf
-#                bBad[j]=True
-#                continue
-#    print "= = Chis:", chi_list
-#    minloc=np.argmin(chi_list)
-#    if chi_list[minloc] == np.inf:
-#        print >> sys.stderr, "= = ERROR: all parameters-fits are bad in findbest_Expstyle_fits! = ="
-#        sys.exit(1)
-#    npar_min=par_list[minloc]
-#    chi_min=chi_list[minloc] ; par_min=params_list[minloc] ; err_min=errors_list[minloc] ; ymod_min=ymodel_list[minloc]
 
     if bPrint:
         names = _return_parameter_names(npar_min)

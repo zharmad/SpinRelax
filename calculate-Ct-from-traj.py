@@ -1,4 +1,3 @@
-
 from math import *
 import sys, os, argparse, time
 import numpy as np

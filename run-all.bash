@@ -419,6 +419,15 @@ if [ ! -e ${outpref}_Ctint.dat ] ; then
 else
     echo " = = = Note: Pre-existing internal motion file found, skipping derivations."
 fi
+echo "= = (Part 3): Fitting the auto-correlations in the local frame (fittedCt)..."
+if [ ! -e ${outpref}_fittedCt.dat ] ; then
+    $pycmd \
+        $script_loc/calculate-fitted-Ct.py \
+        -f ${outpref}_Ctint.dat \
+        -o ${outpref}_fittedCt.dat
+else
+    echo " = = = Note: Pre-existing fitted-Ct file found, skipping derivations."
+fi
 
 echo
 echo "= Step 4: Computing relaxations for B: $Bfields ..."
@@ -426,7 +435,7 @@ for Bfield in $Bfields ; do
     of=${Bfield%.*}
     if [ ! -e ${outpref}-${of}_R2.dat ] ; then
         $pycmd $script_loc/calculate-relaxations-from-Ct.py \
-            -f ${outpref}_Ctint.dat \
+            -f ${outpref}_fittedCt.dat \
             -o ${outpref}-$of \
             --distfn ${outpref}_PhiTheta.dat \
             -F ${Bfield}e6 \
@@ -438,7 +447,7 @@ for Bfield in $Bfields ; do
     if [[ "$bDoJw" == "True" ]] ; then
         if [ ! -e ${outpref}-${of}_Jw.dat ] ; then
         $pycmd $script_loc/calculate-relaxations-from-Ct.py \
-            -f ${outpref}_Ctint.dat \
+            -f ${outpref}_fittedCt.dat \
             -o ${outpref}-$of \
             --distfn ${outpref}_PhiTheta.dat \
             -F ${Bfield}e6 \
@@ -452,7 +461,7 @@ for Bfield in $Bfields ; do
       for optmode in $fitlist ; do
         if [ "$bForce" == "True" ] || [ ! -e ${outpref}-${of}-opt${optmode}_R2.dat ] ; then
             $pycmd $script_loc/calculate-relaxations-from-Ct.py \
-                -f ${outpref}_Ctint.dat \
+                -f ${outpref}_fittedCt.dat \
                 -o ${outpref}-$of-opt${optmode} \
                 --distfn ${outpref}_PhiTheta.dat \
                 -F ${Bfield}e6 \
