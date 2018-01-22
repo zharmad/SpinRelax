@@ -1,5 +1,5 @@
 from math import *
-import sys, os, argparse, time
+import sys, os, argparse, time, gc
 import numpy as np
 from scipy.optimize import curve_fit
 import mdtraj as md
@@ -20,15 +20,22 @@ def normalise_vecs(v, ax):
     shape=v.shape
     return np.array([ [v[i,j]/n[i,j] for j in range(shape[1])] for i in range(shape[0]) ])
 
+def get_spherical_coords_single(uv):
+    ret = np.zeros(3)
+    ret[0]= np.linalg.norm(uv)
+    ret[1]= np.arctan2(uv[1], uv[0])
+    ret[2]= np.arccos(uv[2]/ret[0])
+    return ret
+
 def get_spherical_coords(uv):
     """
     Note: this does not assume unit vectors, and so should be safe.
     """
     sh = uv.shape
     rtp = np.zeros(sh)
-    rtp[:,:,0] = np.linalg.norm(uv,axis=2)
-    rtp[:,:,1] = np.arctan2(uv[:,:,1], uv[:,:,0])
-    rtp[:,:,2] = np.arccos(uv[:,:,2]/rtp[:,:,0])
+    rtp[...,0] = np.linalg.norm(uv,axis=-1)
+    rtp[...,1] = np.arctan2(uv[...,1], uv[...,0])
+    rtp[...,2] = np.arccos(uv[...,2]/rtp[...,0])
     return rtp
 
 def assert_seltxt(mol, txt):
@@ -276,6 +283,19 @@ def fit_Ct(x, ylist):
         errors[i]=perr
     return params.T, errors.T
 
+def get_indices_mdtraj( seltxt, top, filename):
+    """
+    NB: A workaround for MDTraj is needed becusae the standard reader
+    does not return topologies.
+    """
+    if seltxt == 'custom occupancy':
+        pdb  = md.formats.pdb.pdbstructure.PdbStructure(open(filename))
+        mask = [ atom.get_occupancy() for atom in pdb.iter_atoms() ]
+        inds = top.select('all')
+        return [ inds[i] for i in range(len(mask)) if mask[i] > 0.0 ]
+    else:
+        return top.select(seltxt)
+
 def print_sy(fname, slist,ylist):
     fp = open(fname, 'w')
     for i in range(len(slist)):
@@ -333,8 +353,9 @@ if __name__ == '__main__':
                          help='Selection of the H-atoms to which the N-atoms are attached. E.g. "name H and resSeq 2 to 50 and chain A"')
     parser.add_argument('--Xsel', type=str, dest='Xseltxt', default='name N and not resname PRO',
                          help='Selection of the X-atoms to which the H-atoms are attached. E.g. "name N and resSeq 2 to 50 and chain A"')
-    parser.add_argument('--fitsel', type=str, dest='fittxt', default='name CA',
-                         help='Selection in which atoms will be fitted.')
+    parser.add_argument('--fitsel', type=str, dest='fittxt', default='custom occupancy',
+            help='Selection in which atoms will be fitted. Examples include: \'name CA\' and '
+                 '\'resSeq 3 to 30\'. The default selection invokes a workaround to read the occupancy data and take positive entries.')
     parser.add_argument('--help_sel', action='store_true', help='Display help for selection texts and exit.')
 
     args = parser.parse_args()
@@ -381,6 +402,8 @@ if __name__ == '__main__':
         top_filename=in_reflist[0]
         ref = md.load(top_filename)
         print "= = = Loaded single reference file: %s" % (top_filename)
+        # Load the atom indices over which the atom fit will take place.
+        fit_indices = get_indices_mdtraj(top=ref.topology, filename=top_filename, seltxt=fittxt)
     else:
         print "= = = Detected multiple reference file inputs."
         bMultiRef=True
@@ -397,6 +420,7 @@ if __name__ == '__main__':
             top_filename=in_reflist[i]
             ref = md.load(top_filename)
             print "= = = Loaded reference file %i: %s" % (i, top_filename)
+            fit_indices = get_indices_mdtraj( top=ref.topology, filename=top_filename, seltxt=fittxt)
         trj = md.load(in_flist[i], top=top_filename)
         print "= = = Loaded trajectory file %s - it has %i atoms and %i frames." % (in_flist[i], trj.n_atoms, trj.n_frames)
         # = = Run sanity check
@@ -405,11 +429,14 @@ if __name__ == '__main__':
         resXH_loc  = obtain_XHres(trj, Hseltxt)
         vecXH_loc  = obtain_XHvecs(trj, Hseltxt, Xseltxt)
         trj.center_coordinates()
-        trj.superpose(ref, frame=0, atom_indices=trj.topology.select(fittxt)  )
+        print "= = DEBUG: Fitted indices are ", fit_indices
+        trj.superpose(ref, frame=0, atom_indices=fit_indices )
         print "= = = Molecule centered and fitted."
         #msds = md.rmsd(trj, ref, 0, precentered=True)
         vecXHfit_loc = obtain_XHvecs(trj, Hseltxt, Xseltxt)
         nBonds_loc  = vecXH_loc.shape[1]
+
+        del trj
 
         # = = Update overall variables
         if bFirst:
@@ -450,23 +477,39 @@ if __name__ == '__main__':
         gs.print_sxylist(out_pref+'_Ctint.dat', resXH, dt, np.stack( (Ct,dCt), axis=-1) )
 
     # Compress 4D down to 3D for the rest of the calculations to simplify matters.
-    sh = vecXH.shape
-    vecXH    = vecXH.reshape( ( sh[0]*sh[1], sh[-2], sh[-1]) )
+    sh = vecXHfit.shape
+    #vecXH    = vecXH.reshape( ( sh[0]*sh[1], sh[-2], sh[-1]) )
     vecXHfit = vecXHfit.reshape( ( sh[0]*sh[1], sh[-2], sh[-1]) )
     # = = = All sections below assume simple 3D arrays = = =
+    del vecXH
 
     if bRotVec:
         print "= = = Rotating all fitted vectors by the input quaternion into PAF."
-        vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
+        #try:
+        #    vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
+        #except MemoryError:
+        #    print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Doing this the slower way."
+        for i in range(sh[0]*sh[1]):
+            vecXHfit[i] = qs.rotate_vector_simd(vecXHfit[i], q_rot)
 
     if bDoVecAverage:
         # Note: gs-script normalises along the last axis, after this mean operation
         vecXHfitavg = (gs.normalise_vector_array( np.mean(vecXHfit, axis=0) ))
         gs.print_xylist(out_pref+'_avgvec.dat', resXH, np.array(vecXHfitavg).T, True)
+        del vecXHfitavg
 
     if bDoVecDistrib:
         print "= = = Converting vectors into spherical coordinates."
-        rtp = get_spherical_coords(vecXHfit)
+        try:
+            rtp = get_spherical_coords(vecXHfit)
+        except MemoryError:
+            print >> sys.stderr, "= = WARNING: Ran out of memory running spherical conversion! Writing distribution and aborting afterwards."
+            for i in range(sh[0]*sh[1]):
+                vecXHfit[i] = get_spherical_coords(vecXHfit[i])
+            vecXHfit = np.transpose(vecXHfit,axes=(1,0,2)) ;# Convert from time first, to resid first.
+            gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, vecXHfit, (1,2))
+            sys.exit(9)
+
         rtp = np.transpose(rtp,axes=(1,0,2)) ;# Convert from time first, to resid first.
         print rtp.shape
         if not bDoVecHist:
@@ -484,6 +527,7 @@ if __name__ == '__main__':
                 gs.print_gplot_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).', bSphere=True)
                 #gs.print_R_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).')
                 print "= = = Written to output: ", ofile
+
     if bDoS2:
         print "= = = Conducting S2 analysis using memory time", tau_memory, "ps"
         S2 = calculate_S2_by_outer(vecXHfit, deltaT, tau_memory)

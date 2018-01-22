@@ -117,4 +117,10 @@ def rotate_vector_simd(v, q, axis=-1):
     a = np.cross(q_v, v) + np.multiply(q[0],v)
     b = np.cross(q_v, a)
     return b+b+v
+    #v=np.array(v)
+    #q_v = np.array(q[1:4])
+    #a = np.cross(q_v, v)
+    #a += np.multiply(q[0],v)
+    #a = np.cross(q_v, a)
+    #return a+a+v
 

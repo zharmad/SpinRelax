@@ -87,7 +87,7 @@ q_ext=""
 Diso_ext=""
 Dani_ext=""
 Drho_ext=""
-fittxtstr="name CA"
+fittxtstr=""
 num_chunks=4
 #Bfields="400.133 500.133 600.133 700.133 800.133"
 Bfields=600.133
@@ -208,7 +208,7 @@ NB:
             echo "= = Calculating at the following magnetic fields: $Bfields [MHz]"
             ;;
         -fitatoms)
-            fittxtstr="$2" ; shift ;;
+            fittxtstr="--fitsel \"$2\"" ; shift ;;
         -fit) bDoFits=True ; fitlist=""
             while [[ ${2:0:1} != "-" ]] && [[ "$2" != "" ]] ; do
                 fitlist="$fitlist $2" ; shift
@@ -403,7 +403,7 @@ if [ ! -e ${outpref}_PhiTheta.dat ] ; then
         $script_loc/calculate-Ct-from-traj.py \
         -s $refpdb_loc -f $sxtc_list \
         --tau $tau_ps -o ${outpref} \
-        --vecRot "$quat" --fitsel "$fittxtstr" \
+        --vecRot "$quat" $fittxtstr \
         --vecDist --vecAvg --S2
 else
     echo " = = = Note: Pre-existing PhiTheta.dat file found, skipping derivations."
@@ -414,7 +414,7 @@ if [ ! -e ${outpref}_Ctint.dat ] ; then
         $script_loc/calculate-Ct-from-traj.py \
         -s $refpdb_loc -f $sxtc_list \
         --tau $tau_ps -o ${outpref} \
-        --vecRot "$quat" --fitsel "$fittxtstr" \
+        --vecRot "$quat" $fittxtstr \
         --Ct
 else
     echo " = = = Note: Pre-existing internal motion file found, skipping derivations."
@@ -424,7 +424,7 @@ if [ ! -e ${outpref}_fittedCt.dat ] ; then
     $pycmd \
         $script_loc/calculate-fitted-Ct.py \
         -f ${outpref}_Ctint.dat \
-        -o ${outpref}_fittedCt.dat
+        -o ${outpref}
 else
     echo " = = = Note: Pre-existing fitted-Ct file found, skipping derivations."
 fi
