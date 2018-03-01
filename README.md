@@ -60,7 +60,8 @@ that string together all of the components, such as:
 3. plumed-quat-template.dat (PLUMED)
 4. calculate-dq-distribution.py
 5. calculate-Ct-from-traj.py
-6. calculate-relaxations-from-Ct.py
+6. calculate-fitted-Ct.py
+7. calculate-relaxations-from-Ct.py
 The global script runs through each step of the process and checks for the
 existance of results from previous invocations.
 
@@ -82,6 +83,9 @@ and then computes the relevant global rotational diffusion.
 calculate-Ct-from-traj.py separately computes the local motions C(t)
 from the centered-solute trajectory.
 
+calculate-fitted-Ct.py converts the raw MD trajectories into a sum of
+individual motion parameters, each described by a single exponential.
+
 calculate-relaxations-from-Ct.py then takes the global and local diffusion data,
 and combines them into the final spin-relaxation predictions.
 Fitting to experiment is done at this stage.
@@ -91,7 +95,7 @@ Fitting to experiment is done at this stage.
 1. *Naive run*
 ```
 run-all.bash -Temp_MD 300 -Temp_Exp 297 -D2O_Exp 0.09 -Bfields 700.303
-```
+
 
 This is a simple invocation case (and probably most dangerous),
 leaving the bash script to look for software/data

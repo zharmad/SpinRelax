@@ -147,6 +147,13 @@ class relaxObject:
         rotdif_model - The Rotational Diffusion model used to define spectral densitiies J(omega)
     """
 
+    # = = = Static class variables = = =
+    # Default indexing to create the five NMR-component frequencies
+    # J(0), J(wX), J(wH-wX), J(wH), J(wH+wX)
+    # In ascending order. This is used to obtain relaxation properties from a five-value J(function)
+    iOmX = 1
+    iOmH = 3
+
     def __init__(self, bond, B_0):
         # Parameters associated with units
         self.omega=np.array(0.0)
@@ -199,16 +206,16 @@ class relaxObject:
         """
         self.num_omega=5
         self.omega=np.zeros(self.num_omega)
-        om_H = 3 ; # indexing for the frequencies.
-        om_X = 1 ; #
+        iOmH = 3 ; # indexing for the frequencies.
+        iOmX = 1 ; #
         # First determine the frequencies omega and J from given inputs.
-        self.omega[om_H] = -1.0*self.gH.gamma*self.B_0*self.time_fact
-        self.omega[om_X] = -1.0*self.gX.gamma*self.B_0*self.time_fact
-        self.omega[om_H-om_X] = (self.omega[om_H]-self.omega[om_X])
-        self.omega[om_H+om_X] = (self.omega[om_H]+self.omega[om_X])
+        self.omega[iOmH] = -1.0*self.gH.gamma*self.B_0*self.time_fact
+        self.omega[iOmX] = -1.0*self.gX.gamma*self.B_0*self.time_fact
+        self.omega[iOmH-iOmX] = (self.omega[iOmH]-self.omega[iOmX])
+        self.omega[iOmH+iOmX] = (self.omega[iOmH]+self.omega[iOmX])
 
     def print_freq_order(self):
-        print "omega=(0, om_X, om_H-om_X, om_H, om_H+om_X )"
+        print "omega=(0, iOmX, iOmH-iOmX, iOmH, iOmH+iOmX )"
 
     def set_freq_defined(self, wmin, wmax, wstep):
         self.omega=np.arange(wmin, wmax, wstep)
@@ -248,22 +255,55 @@ class relaxObject:
         # (mu_0*hbar/4.0/pi)**2 m^-1 s^2 is the 10^-82 number below. f_DD and f_CSA are maintained in SI units.
         f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
         f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
-        om_H = 3 ; # indexing for the frequencies.
-        om_X = 1 ; #
+
         # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
-        R1 = self.time_fact*( f_DD*( J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] ) + f_CSA*J[om_X] )
-        R2 = self.time_fact*( 0.5*f_DD*( 4*J[0] + J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] + 6*J[om_H] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[om_X]) )
-        NOE = 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[om_H+om_X] - J[om_H-om_X])
+        R1 = self.time_fact*( f_DD*( J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] ) + f_CSA*J[iOmX] )
+        R2 = self.time_fact*( 0.5*f_DD*( 4*J[0] + J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] + 6*J[iOmH] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[iOmX]) )
+        NOE = 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[iOmH+iOmX] - J[iOmH-iOmX])
 
         return R1, R2, NOE
+
+    def _get_f_DD(self):
+        return 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
+
+    def _get_f_CSA(self):
+        return 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
+
+    def get_R1(self, J):
+        f_DD = _get_f_DD() ; f_CSA = _get_f_CSA()
+        return self.time_fact*( f_DD*( J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] ) + f_CSA*J[iOmX] )
+
+    def get_R2(self, J):
+        f_DD = _get_f_DD() ; f_CSA = _get_f_CSA()
+        return self.time_fact*( 0.5*f_DD*( 4*J[0] + J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] + 6*J[iOmH] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[iOmX] ) )
+
+    def get_NOE(self, J):
+        f_DD = _get_f_DD() ; f_CSA = _get_f_CSA()
+        return 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[iOmH+iOmX] - J[iOmH-iOmX])
+
+    def get_etaZ(self, J, beta=0.0):
+        """
+        Notation following that of Kroenke et al., JACS 1998. Eq. 2
+        Here, beta is the angle (in radians) between the symmetry axis of the CSA tensor and the N-H bond.
+        """
+        # mu_0 hbar / 4_pi = hbar* 10^-7
+        fact = -1.0545718e-41*self.gH.gamma*self.gX.gamma**2.0*(self.rXH*self.dist_fact)**-3.0 * self.B_0*self.gX.csa* 0.4
+        return fact*(1.5*cos(beta)-0.5)*J[iOmX]
+
+    def get_etaXY(self, J, beta=0.0):
+        """
+        Notation following that of Kroenke et al., JACS 1998.
+        Here, beta is the angle (in radians) between the symmetry axis of the CSA tensor and the N-H bond.
+        """
+        fact = -1.0545718e-41*self.gH.gamma*self.gX.gamma**2.0*(self.rXH*self.dist_fact)**-3.0 * self.B_0*self.gX.csa* 0.4
+        return fact/6.0*(1.5*cos(beta)-0.5)*( 4.0*J[0] + 3.0*J[iOmX] )
 
     def get_rho_from_J(self, J):
         """
         Taking Eq. 4 of Ghose, Fushman and Cowburn (2001), and define rho as a ratio of modified R1' and R2'
         that have high frequency components removed.
         """
-        om_X=1
-        return J[om_X]/J[0]
+        return J[iOmX]/J[0]
 
     def calculate_rho_from_relaxation(self, rvec, drvec=[] ):
         """
@@ -624,16 +664,16 @@ def calculate_spectral_density(model, w, *args):
         return -1
 
 def obtain_HX_frequencies(gamma_X=-27.116e6, DeltaSigma_X=-160e-6, r_XH=1.02e-10, gamma_1H=267.513e6):
-    om_H = 3 ; # indexing for the frequencies.
-    om_X = 1 ; #
+    iOmH = 3 ; # indexing for the frequencies.
+    iOmX = 1 ; #
     # First determine the frequencies omega and J from given inputs.
     omega = np.zeros(5)
-    omega[om_H] = -1.0*gamma_1H*B_0
-    omega[om_X] = -1.0*gamma_X*B_0
-    omega[om_H-om_X] = omega[om_H]-omega[om_X]
-    omega[om_H+om_X] = omega[om_H]+omega[om_X]
+    omega[iOmH] = -1.0*gamma_1H*B_0
+    omega[iOmX] = -1.0*gamma_X*B_0
+    omega[iOmH-iOmX] = omega[iOmH]-omega[iOmX]
+    omega[iOmH+iOmX] = omega[iOmH]+omega[iOmX]
 
-    return omega, om_H, om_X
+    return omega, iOmH, iOmX
 
 def calculate_relaxation_from_J(J):
     # f_DD = 519627720.1974593 , if r_NH is at default values
@@ -641,16 +681,16 @@ def calculate_relaxation_from_J(J):
     # f_CSA = 498637299.69233465, if B_0 = 600.13, and DeltaSigma=-160e-6
     f_CSA = 2.0/15.0 * DeltaSigma_X**2 * ( gamma_X * B_0 )**2
 
-    R1 = f_DD*( J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] ) + f_CSA*J[om_X]
-    R2 = 0.5*f_DD*( 4*J[0] + J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] + 6*J[om_H] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[om_X])
-    NOE = 1.0 + gamma_1H/gamma_X/R1 * f_DD*(6*J[om_H+om_X] - J[om_H-om_X])
+    R1 = f_DD*( J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] ) + f_CSA*J[iOmX]
+    R2 = 0.5*f_DD*( 4*J[0] + J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] + 6*J[iOmH] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[iOmX])
+    NOE = 1.0 + gamma_1H/gamma_X/R1 * f_DD*(6*J[iOmH+iOmX] - J[iOmH-iOmX])
 
     return R1, R2, NOE
 
 def calculate_relaxation(model, B_0, gamma_X=-27.116e6, DeltaSigma_X=-160e-6, r_XH=1.02e-10, *args):
     """
     To calculate relaxation, we require values of J at five different frequencies:
-    - J[0], J[om_N], J[om_H-om_X], J[om_X], J[om_H + om_X]
+    - J[0], J[om_N], J[iOmH-iOmX], J[iOmX], J[iOmH + iOmX]
 
     Define constants using Palmer's standard so as to leave J(omega) with no prefactors.
     factor_dipole-dipole and factor_CSA.
@@ -667,11 +707,11 @@ def calculate_relaxation(model, B_0, gamma_X=-27.116e6, DeltaSigma_X=-160e-6, r_
     DeltaSigma_15N is generally dependent on the local structure,
     the literature average is -160 ppm
 
-    R1 = f_DD*( J[om_N-om_H] + 3*J[om_N] + 6*J[om_N+om_H] ) + f_CSA*J[om_N]
-    R2 = 0.5*f_DD*( 4*J[0] + J[om_N-om_H] + 3*J[om_N] + 6*J[om_N+om_H] + 6*J[om_H] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[om_N])
-    NOE = 1.0 + gamma_H/gamma_N/R1 * f_DD*(6*J[om_N+om_H] - J[om_N-om_H])
+    R1 = f_DD*( J[om_N-iOmH] + 3*J[om_N] + 6*J[om_N+iOmH] ) + f_CSA*J[om_N]
+    R2 = 0.5*f_DD*( 4*J[0] + J[om_N-iOmH] + 3*J[om_N] + 6*J[om_N+iOmH] + 6*J[iOmH] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[om_N])
+    NOE = 1.0 + gamma_H/gamma_N/R1 * f_DD*(6*J[om_N+iOmH] - J[om_N-iOmH])
     """
-    omega, om_H, om_X = obtain_HX_frequencies(gamma_X, DeltaSigma_X, r_XH)
+    omega, iOmH, iOmX = obtain_HX_frequencies(gamma_X, DeltaSigma_X, r_XH)
     gamma_1H  = 267.513e6  ; # rad s^-1 T^-1
     # First determine the frequencies omega and J from given inputs.
 
@@ -682,9 +722,9 @@ def calculate_relaxation(model, B_0, gamma_X=-27.116e6, DeltaSigma_X=-160e-6, r_
     # f_CSA = 498637299.69233465, if B_0 = 600.13, and DeltaSigma=-160e-6
     f_CSA = 2.0/15.0 * DeltaSigma_X**2 * ( gamma_X * B_0 )**2
 
-    R1 = f_DD*( J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] ) + f_CSA*J[om_X]
-    R2 = 0.5*f_DD*( 4*J[0] + J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] + 6*J[om_H] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[om_X])
-    NOE = 1.0 + gamma_1H/gamma_X/R1 * f_DD*(6*J[om_H+om_X] - J[om_H-om_X])
+    R1 = f_DD*( J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] ) + f_CSA*J[iOmX]
+    R2 = 0.5*f_DD*( 4*J[0] + J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] + 6*J[iOmH] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[iOmX])
+    NOE = 1.0 + gamma_1H/gamma_X/R1 * f_DD*(6*J[iOmH+iOmX] - J[iOmH-iOmX])
 
     return R1, R2, NOE
 
@@ -711,7 +751,7 @@ def calculate_NH_relaxation_from_Ct(bondtype, B_0, t, Ct):
     om, G = do_dft(t, Ct)
     J = G.real
 
-    omega, om_H, om_X = obtain_HX_frequencies()
+    omega, iOmH, iOmX = obtain_HX_frequencies()
 
     Jw=np.zeros(5)
     for i in range(5):
@@ -723,9 +763,9 @@ def calculate_NH_relaxation_from_Ct(bondtype, B_0, t, Ct):
     # f_CSA = 498637299.69233465, if B_0 = 600.13, and DeltaSigma=-160e-6
     f_CSA = 2.0/15.0 * DeltaSigma_X**2 * ( gamma_X * B_0 )**2
 
-    R1 = f_DD*( J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] ) + f_CSA*J[om_X]
-    R2 = 0.5*f_DD*( 4*J[0] + J[om_H-om_X] + 3*J[om_X] + 6*J[om_H+om_X] + 6*J[om_H] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[om_X])
-    NOE = 1.0 + gamma_1H/gamma_X/R1 * f_DD*(6*J[om_H+om_X] - J[om_H-om_X])
+    R1 = f_DD*( J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] ) + f_CSA*J[iOmX]
+    R2 = 0.5*f_DD*( 4*J[0] + J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] + 6*J[iOmH] ) + 1.0/6.0*f_CSA*(4*J[0] + 3*J[iOmX])
+    NOE = 1.0 + gamma_1H/gamma_X/R1 * f_DD*(6*J[iOmH+iOmX] - J[iOmH-iOmX])
 
     return R1, R2, NOE
 
