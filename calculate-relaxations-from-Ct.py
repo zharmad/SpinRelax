@@ -72,7 +72,15 @@ def _obtain_Jomega(RObj, nvecs, S2, consts, taus, vecXH):
 
 
 def _obtain_R1R2NOErho(RObj, nvecs, S2, consts, taus, vecXH):
-    if RObj.rotdif_model.name == 'rigid_sphere':
+    if RObj.rotdif_model.name == 'direct_transform':
+        datablock=np.zeros((4,nvecs))
+        for i in range(nvecs):
+            J = sd.J_direct_transform(RObj.omega, consts[i], taus[i])
+            R1, R2, NOE = RObj.get_relax_from_J( J )
+            rho = RObj.get_rho_from_J( J )
+            datablock[:,i]=[R1,R2,NOE,rho]
+        return datablock
+    elif RObj.rotdif_model.name == 'rigid_sphere':
         datablock=np.zeros((4,nvecs))
         for i in range(nvecs):
             J = sd.J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdif_model.D), S2[i], consts[i], taus[i])
@@ -215,8 +223,8 @@ def print_fitting_params_headers( names, values, units, bFit ):
     return sumstr
 
 # Read the formatted file headers in _fittedCt.dat. These are of the form:
-# # Residue: 1 
-# # Chi-value: 1.15659e-05 
+# # Residue: 1
+# # Chi-value: 1.15659e-05
 # # Param XXX: ### +- ###
 def read_fittedCt_file(filename):
 
@@ -344,7 +352,7 @@ if __name__ == '__main__':
                         help='Calculate Jomega instead of R1, R2, NOE, and rho.')
     parser.add_argument('--tu', '--time_units', type=str, dest='time_unit', default='ps',
                         help='Time units of the autocorrelation file.')
-    parser.add_argument('--tau', type=float, dest='tau', default=5.00e3,
+    parser.add_argument('--tau', type=float, dest='tau', default=np.nan,
                         help='Isotropic relaxation time constant. Overwritten by Diffusion tensor values when given.')
     parser.add_argument('--aniso', type=float, dest='aniso', default=1.0,
                         help='Diffusion anisotropy (prolate/oblate). Overwritten by Diffusion tensor values when given.')
@@ -455,15 +463,19 @@ if __name__ == '__main__':
         # When no errors are given expblock is (nres, R1/R2/NOE)
         # When errors are given, 3 dimensions: (nres, R1/R2/NOE, data/error)
 
-    #Determine diffusion model:
+    #Determine diffusion model.
     if args.D == '-1':
-        tau_iso=args.tau
-        Diso  = 1.0/(6*args.tau)
-        if args.aniso != 1.0:
-            aniso = args.aniso
-            diff_type = 'symmtop'
+        if np.isnan(args.tau):
+            diff_type = 'direct'
+            Diso = 0.0
         else:
-            diff_type = 'spherical'
+            tau_iso=args.tau
+            Diso  = 1.0/(6*args.tau)
+            if args.aniso != 1.0:
+                aniso = args.aniso
+                diff_type = 'symmtop'
+            else:
+                diff_type = 'spherical'
     else:
         tmp   = [ float(x) for x in args.D.split() ]
         Diso  = tmp[0]
@@ -478,6 +490,10 @@ if __name__ == '__main__':
             diff_type = 'anisotropic'
         tau_iso = 1.0/(6*Diso)
 
+    if diff_type=='direct':
+        print "= = = No global rotational diffusion selected. Calculating the direct transform."
+        relax_obj.set_rotdif_model('direct_transform')
+        vecXH=np.array([])
     if diff_type=='spherical':
         print "= = = Using a spherical rotational diffusion model."
         relax_obj.set_rotdif_model('rigid_sphere_D', Diso)
@@ -547,7 +563,10 @@ if __name__ == '__main__':
 # = = = Now that the basic stats habe been stored, check for --rigid shortcut.
 #       This shortcut will exit after this if statement is run.
     if args.bRigid:
-        if diff_type == 'spherical':
+        if diff_type == 'direct':
+            print >> sys.stderr, "= = = ERROR: Rigid-sphere argument cannot be applied without an input for the global rotational diffusion!"
+            sys.exit(1)
+        if diff_type == 'spherical' or diff_type == 'anisotropic':
             num_vecs=1 ; S2_list=[zeta] ; consts_list=[[0.]] ; taus_list=[[99999.]] ; vecXH=[]
         else:
             num_vecs=3 ; S2_list=[zeta,zeta,zeta] ; consts_list=[[0.],[0.],[0.]] ; taus_list=[[99999.],[99999.],[99999.]] ; vecXH=np.identity(3)
@@ -563,9 +582,9 @@ if __name__ == '__main__':
 
 # = = = Read fitted C(t). For each residue, we expect a set of parameters
 #       corresponding to S2 and the other parameters.
-    sim_resid, param_names, param_vals = read_fittedCt_file(fittedCt_file) 
+    sim_resid, param_names, param_vals = read_fittedCt_file(fittedCt_file)
     num_vecs = len(sim_resid)
-    if diff_type != 'spherical':
+    if diff_type == 'symmtop' or diff_type == 'anisotropic':
         sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct versus vectors")
 
     S2_list=[] ; taus_list=[] ; consts_list=[]
@@ -598,7 +617,7 @@ if __name__ == '__main__':
         # = = = Sanity Check
         # Compare the two resid_lists.
         if not np.all(sim_resid == exp_resid ):
-            print >> sys.stderr, "= = WARNING: The resids between the simulatoin experiment are not the same!"
+            print >> sys.stderr, "= = WARNING: The resids between the simulation and experiment are not the same!"
             print >> sys.stderr, "...removing elements from the vector files that do not match."
 
             print "Debug (before):", len(S2_list), vecXH.shape, expblock.shape

@@ -60,7 +60,11 @@ class diffusion_model:
     def __init__(self, model, *args):
         self.time_unit=args[0]
         self.time_fact=_return_time_fact(self.time_unit)
-        if   model=='rigid_sphere_T':
+        if   model=='direct_transform':
+            # Dummy entry for diffusion model with np.nan to ensure errors.
+            self.name='direct_transform'
+            self.D=np.nan
+        elif model=='rigid_sphere_T':
             self.name='rigid_sphere'
             self.D=1.0/6.0*float(args[1])
             self.D_coeff=self.D
@@ -253,6 +257,8 @@ class relaxObject:
         #omega_15N = - gamma_15N * B_0 .
         #r_NH = 1.02e-10 ;# m
         # (mu_0*hbar/4.0/pi)**2 m^-1 s^2 is the 10^-82 number below. f_DD and f_CSA are maintained in SI units.
+        iOmX = 1; iOmH = 3
+
         f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
         f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
 
@@ -303,7 +309,7 @@ class relaxObject:
         Taking Eq. 4 of Ghose, Fushman and Cowburn (2001), and define rho as a ratio of modified R1' and R2'
         that have high frequency components removed.
         """
-        return J[iOmX]/J[0]
+        return J[self.iOmX]/J[0]
 
     def calculate_rho_from_relaxation(self, rvec, drvec=[] ):
         """
@@ -529,6 +535,17 @@ def _J_combine_LS_anisotropic(w, S2, tau_int, A_J, D_J):
         D_eff=D_J[k]+1.0/tau_int
         J[i] = S2[i]*A_J[k]*D_J[k]/(D_J[k]**2+w**2) + (1-S2) * D_eff/(D_eff**2 + w**2)
     return J.sum(axis=0)
+
+def J_direct_transform(om, consts, taus):
+    """
+    This calculates the direct fourier transform of C(t) without a global tumbling factor.
+    In this case the order parameter makes no contributions whatsoever?
+    """
+    ndecay=len(consts) ; noms=len(om)
+    Jmat = np.zeros( (ndecay, noms ) )
+    for i in range(ndecay):
+        Jmat[i] = consts[i]*taus[i] /(1 + (taus[i]*om)**2.)
+    return Jmat.sum(axis=0)
 
 #tau_eff = tau_int * tau_iso / (tau_int + tau_iso)
 #J = S2 * Diso / (Diso**2 + w**2 ) + (1-S2) * tau_eff / (1 + (w*tau_eff)**2)

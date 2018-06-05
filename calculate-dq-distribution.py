@@ -8,6 +8,7 @@ from scipy.optimize import fmin_powell
 import transforms3d.quaternions as quat
 from   transforms3d_supplement import *
 import plumedcolvario as pl
+import general_scripts as gs
 import dxio
 
 import scipy.version as scipyVersion
@@ -390,6 +391,7 @@ def print_axes_as_xyz(fname, mat):
         print >> fp, "X %g %g %g" % (out_moilist[i][0,0], out_moilist[i][0,1], out_moilist[i][0,2])
         print >> fp, "Y %g %g %g" % (out_moilist[i][1,0], out_moilist[i][1,1], out_moilist[i][1,2])
         print >> fp, "Z %g %g %g" % (out_moilist[i][2,0], out_moilist[i][2,1], out_moilist[i][2,2])
+
     fp.close()
 
 def debug_orthogonality(axes):
@@ -398,6 +400,26 @@ def debug_orthogonality(axes):
         (np.dot(axes[0],axes[1]),
          np.dot(axes[0],axes[2]),
          np.dot(axes[1],axes[2]))
+
+def matrix_to_quaternion(time, matrix, bInvert=False):
+    """
+    Converts a matrix to quaternion, with a reverse if necessary
+    """
+
+    nPts=len(time)
+    if nPts != len(matrix):
+        print >> sys.stderr, "= = = ERROR in matrix_to_quaternion: lengths are not the same!"
+        return
+
+    out=np.zeros( (5,nPts) )
+    for i in range(nPts):
+        out[0,i]=time[i]
+        if bInvert:
+            out[1:5,i]=qops.qinverse( qops.mat2quat( matrix[i] ) )
+        else:
+            out[1:5,i]=qops.mat2quat( matrix[i] )
+
+    return out
 
 if __name__ == '__main__':
 
@@ -417,9 +439,7 @@ if __name__ == '__main__':
                                      'then manipulate them in various ways',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-f', '--infn', type=str, dest='infn', default='colvar-q',
-                        help='Input file in PLUMED form, '
-                             'containing a header lines of format "#! FIELD <time> <quaternion>, '
-                             'and then space-delimited data columns. Comment chars "#".'
+                        help='Input file in PLUMED quaternion form or GROMACS rotational-matrix .xvg file.'
                              'Assumes that dt is identical between every frame! (be careful).')
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix for the histograms and/or quaternion-decay curves.')
@@ -481,10 +501,22 @@ if __name__ == '__main__':
     fact=180.0/np.pi
 
     #= = = Read inputs and prepare for matrix ops.
-    fields, data = pl.read_from_plumedprint(in_fname)
-    nfield, ndat = data.shape
-    print "= = Input data found to be %i fields and %i entries. = =" \
-            % (nfield, ndat)
+    # = = = Check File extensions and use Gromacs or Plumed data.
+    # = = = TODO: Think about inserting argument for input file format.
+    if in_fname.endswith('.xvg'):
+        # = = Assume that the input file is from gmx rotmat, which is an xmgrace file.
+        tmp1, tmp2 = gs.load_xys(in_fname)
+        data = matrix_to_quaternion(tmp1, tmp2, bInvert=True )
+        tmp1 = tmp2 = None
+        ndat = data.shape[1]
+    else:
+        # = = PLUMED files can be normally extension free, or with .dat, or...
+        fields, data = pl.read_from_plumedprint(in_fname)
+        nfield, ndat = data.shape
+        print "= = Input data found to be %i fields and %i entries. = =" \
+                % (nfield, ndat)
+    # = = = We desire the data block to in the format (time, q.w, q.x, q.y, q.z ) "
+    # = = = But the order is somewhat different, of the shape (5, nPoints )
 
     print data[1:5,0]
     qprev=data[1:5,0]

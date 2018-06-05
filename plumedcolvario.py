@@ -61,7 +61,7 @@ def read_from_plumedprint(fname):
 
     #Add one to enumerate output, then remove counts for comments and empty lines
     ndata=ntot+1-ncomm-nempty
-    print '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i commment lines. ' % (fname, ndata, ncomm)
+    print '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i comment lines. ' % (fname, ndata, ncomm)
     if nempty > 0:
         print '= = = NOTE: There are %i empty lines' % nempty
     print '= = = %i field entries discovered. Field entries are as follows:' % nfields
@@ -69,7 +69,7 @@ def read_from_plumedprint(fname):
         print '%s '% field_names[i],
     print ''
 
-    # Now reshape parsed_data to match the lines read and the toal number of fields.
+    # Now reshape parsed_data to match the lines read and the total number of fields.
     parsed_data=np.reshape(parsed_data, (nfields,ndata), order='F')
 
     return field_names, parsed_data
@@ -126,13 +126,13 @@ def read_from_plumedprint_multi(fname):
 
     #Add one to enumerate output, then remove counts for comments and empty lines
     ndata=ntot+1-ncomm-nempty
-    print '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i commment lines. ' % (fname, ndata, ncomm)
+    print '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i comment lines. ' % (fname, ndata, ncomm)
     if nempty > 0:
         print '= = = NOTE: There are %i empty lines' % nempty
     print '= = = %i * %i field entries discovered. Field entries are as follows:' % (nchunks, nfields)
     print field_names
 
-    # Now reshape parsed_data to match the lines read and the toal number of fields.
+    # Now reshape parsed_data to match the lines read and the total number of fields.
     #parsed_data=np.reshape(parsed_data, (nfields,ndata), order='F')
 
     return field_names, np.array(output_data)
