@@ -398,15 +398,15 @@ fi
 
 [[ "$bMultiRef" == "True" ]] && refpdb_loc=$refpdb_list || refpdb_loc=$refpdb
 echo "= = (Part 1): Obtaining XH-vector distribution in PAF frame in polar coordinates (PhiTheta)..."
-if [ ! -e ${outpref}_PhiTheta.dat ] ; then
+if [ ! -e ${outpref}_PhiTheta.npz ] ; then
     $pycmd \
         $script_loc/calculate-Ct-from-traj.py \
         -s $refpdb_loc -f $sxtc_list \
         --tau $tau_ps -o ${outpref} \
         --vecRot "$quat" $fittxtstr \
-        --vecDist --vecAvg --S2
+        --vecDist --binary --vecAvg --S2
 else
-    echo " = = = Note: Pre-existing PhiTheta.dat file found, skipping derivations."
+    echo " = = = Note: Pre-existing binary PhiTheta.npz file found, skipping derivations."
 fi
 echo "= = (Part 2): Obtaining XH-vector auto-correlation in both global and local frame (Ctint)..."
 if [ ! -e ${outpref}_Ctint.dat ] ; then
@@ -437,7 +437,7 @@ for Bfield in $Bfields ; do
         $pycmd $script_loc/calculate-relaxations-from-Ct.py \
             -f ${outpref}_fittedCt.dat \
             -o ${outpref}-$of \
-            --distfn ${outpref}_PhiTheta.dat \
+            --distfn ${outpref}_PhiTheta.npz \
             -F ${Bfield}e6 \
             --tu ps $zetaStr \
             --D "$Diso $Dani"
@@ -449,7 +449,7 @@ for Bfield in $Bfields ; do
         $pycmd $script_loc/calculate-relaxations-from-Ct.py \
             -f ${outpref}_fittedCt.dat \
             -o ${outpref}-$of \
-            --distfn ${outpref}_PhiTheta.dat \
+            --distfn ${outpref}_PhiTheta.npz \
             -F ${Bfield}e6 \
             --tu ps --Jomega $zetaStr \
             --D "$Diso $Dani"
@@ -463,7 +463,7 @@ for Bfield in $Bfields ; do
             $pycmd $script_loc/calculate-relaxations-from-Ct.py \
                 -f ${outpref}_fittedCt.dat \
                 -o ${outpref}-$of-opt${optmode} \
-                --distfn ${outpref}_PhiTheta.dat \
+                --distfn ${outpref}_PhiTheta.npz \
                 -F ${Bfield}e6 \
                 --tu ps $zetaStr \
                 --D "$Diso $Dani" \

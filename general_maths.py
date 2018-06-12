@@ -1,6 +1,27 @@
 import numpy as np
 import sys
 
+def gather(a, b):
+    return np.sum(np.multiply(a, b))
+
+def calc_central_moments(x, y, bSymm ):
+    ctot = np.sum(y)
+    mu=np.zeros(4, dtype=type(ctot))
+    if bSymm:
+        mu[1] = gather( y, np.power(x,2) ) / ctot
+        mu[3] = gather( y, np.power(x,4) ) / ctot
+        return mu
+    else:
+        EX1 = gather( y, x ) / ctot
+        EX2 = gather( y, np.power(x,2) ) / ctot
+        EX3 = gather( y, np.power(x,3) ) / ctot
+        EX4 = gather( y, np.power(x,4) ) / ctot
+        mu[0] = EX1
+        mu[1] = EX2 - np.power(EX1,2)
+        mu[2] = EX3 - 3*EX1*EX2 + 2*np.power(EX1,3)
+        mu[3] = EX4 - 4*EX1*EX3 + 6*np.power(EX1,2)*EX2 - 3*np.power(EX1,4)
+        return mu
+
 def anova_total_mean_square(Ns, means, sigmas):
     """
     This function performs an average over multiple sets of observations, each with its own standard deviation.
@@ -31,7 +52,7 @@ def _perturb_tuple(t,mod,axis):
     l[axis]+=mod
     return tuple(l)
 
-def xyz_to_rtp(uv, vaxis=-1, bUnit=False):
+def xyz_to_rtp(uv, vaxis=-1, bUnit=False ):
     """
     Converts a vector or a set of vectors from the X/Y/Z to R/Phi/Theta.
     Noting that 0 ~ Theta ~ pi from positive Z.
@@ -42,21 +63,21 @@ def xyz_to_rtp(uv, vaxis=-1, bUnit=False):
     dims= len(sh)
     if bUnit:
         if dims == 1:
-            rtp = np.zeros(2)
+            rtp = np.zeros(2, dtype=uv.dtype)
             rtp[0] = np.arctan2(uv[1], uv[0])
             rtp[1] = np.arccos(uv[2]/rtp[0])
         elif vaxis==-1:
-            rtp = np.zeros(_perturb_tuple(sh,mod=-1,axis=-1))
+            rtp = np.zeros(_perturb_tuple(sh,mod=-1,axis=-1), dtype=uv.dtype)
             rtp[...,0] = np.arctan2(uv[...,1], uv[...,0])
             rtp[...,1] = np.arccos(uv[...,2]/rtp[...,0])
         elif vaxis==0:
-            rtp = np.zeros(_perturb_tuple(sh,mod=-1,axis=0))
+            rtp = np.zeros(_perturb_tuple(sh,mod=-1,axis=0), dtype=uv.dtype)
             rtp[0,...] = np.arctan2(uv[1,...], uv[0,...])
             rtp[1,...] = np.arccos(uv[2,...]/rtp[0,...])
         else:
             print >> sys.stderr, "= = ERROR encountered in vec-to-rtp in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
     else:
-        rtp = np.zeros(sh)
+        rtp = np.zeros_like(uv)
         if dims == 1:
             rtp[0] = np.linalg.norm(uv)
             rtp[1] = np.arctan2(uv[1], uv[0])
@@ -73,7 +94,7 @@ def xyz_to_rtp(uv, vaxis=-1, bUnit=False):
             print >> sys.stderr, "= = ERROR encountered in vec-to-rtp in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
     return rtp
 
-def rtp_to_xyz(rtp, vaxis=-1 , bUnit=False):
+def rtp_to_xyz(rtp, vaxis=-1 , bUnit=False ):
     """
     Converts a vector or a set of vectors from R/Phi/Theta to X/Y/Z.
     Noting that 0 ~ Theta ~ pi from positive Z.
@@ -85,24 +106,24 @@ def rtp_to_xyz(rtp, vaxis=-1 , bUnit=False):
     dims = len(sh)
     if bUnit:
         if dims == 1:
-            uv = np.zeros(3)
+            uv = np.zeros(3, dtype=rtp.dtype)
             uv[0]=np.cos(rtp[0])*np.sin(rtp[1])
             uv[1]=np.sin(rtp[0])*np.sin(rtp[1])
             uv[2]=np.cos(rtp[1])
         elif vaxis == -1:
-            uv = np.zeros( _perturb_tuple(sh,mod=1,axis=-1) )
+            uv = np.zeros( _perturb_tuple(sh,mod=1,axis=-1) , dtype=rtp.dtype)
             uv[...,0]=np.cos(rtp[...,0])*np.sin(rtp[...,1])
             uv[...,1]=np.sin(rtp[...,0])*np.sin(rtp[...,1])
             uv[...,2]=np.cos(rtp[...,1])
         elif vaxis == 0:
-            uv = np.zeros( _perturb_tuple(sh,mod=1,axis=0) )
+            uv = np.zeros( _perturb_tuple(sh,mod=1,axis=0) , dtype=rtp.dtype)
             uv[0,...]=np.cos(rtp[0,...])*np.sin(rtp[1,...])
             uv[1,...]=np.sin(rtp[0,...])*np.sin(rtp[1,...])
             uv[2,...]=np.cos(rtp[1,...])
         else:
             print >> sys.stderr, "= = ERROR encountered in rtp-to-vec in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
     else:
-        uv = np.zeros(sh)
+        uv = np.zeros_like( rtp )
         if dims == 1:
             uv[0]=rtp[0]*np.cos(rtp[1])*np.sin(rtp[2])
             uv[1]=rtp[0]*np.sin(rtp[1])*np.sin(rtp[2])

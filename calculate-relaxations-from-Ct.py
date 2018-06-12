@@ -518,7 +518,7 @@ if __name__ == '__main__':
         bHaveVec = False ; bHaveVDist = False ; bHaveTraj = False
         if args.vecfn != 'none':
             print "= = = Using average vectors. Reading X-H vectors from %s ..." % args.vecfn
-            resNH, vecXH = gs.load_xys(args.vecfn)
+            resNH, vecXH = gs.load_xys(args.vecfn, dtype=float32)
             if bQuatRot:
                 print "    ....rotating input vectors into PAF frame using q_rot."
                 vecXH = qs.rotate_vector_simd(vecXH, q_rot)
@@ -528,9 +528,18 @@ if __name__ == '__main__':
             bHaveVec = True
         elif args.distfn != 'none':
             print "= = = Using vector distribution in spherical coordinates. Reading X-H vector distribution from %s ..." % args.distfn
-            resNH, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
+            if args.distfn.endswith('.npz'):
+                # = = = Treat as a numpy binary file.
+                obj = np.load(args.distfn)
+                resNH = obj['names']
+                dist_phis   = obj['data'][...,0]
+                dist_thetas = obj['data'][...,1]
+                del obj
+            else:
+                resNH, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
             resNH = [ float(x) for x in resNH ]
             print "    ...read phi and theta, whose shapes are:", dist_phis.shape, dist_thetas.shape
+            print "    ...First (phi, theta) entry:", dist_phis[0,0], dist_thetas[0,0]
             vecXH = gm.rtp_to_xyz( np.stack( (dist_phis,dist_thetas), axis=-1), vaxis=-1, bUnit=True )
             print "    ...converted this to vecXH, whose shapes is:", vecXH.shape
             # Remove phis and thetas as they will not be used anymore.

@@ -321,7 +321,7 @@ def print_R_hist(fn, hist, edges, header=''):
     if header != '':
         print >> fp, '%s' % header
     print >> fp, '# DIMENSIONS: %i' % dim
-    binwidth=np.zeros(dim)
+    binwidth=np.zeros(dim, dtype=hist.dtype)
     print >> fp, '# BINWIDTH: ',
     for i in range(dim):
         binwidth[i]=(edges[i][-1]-edges[i][0])/nbins[i]
@@ -349,7 +349,7 @@ def print_gplot_hist(fn, hist, edges, header='', bSphere=False):
     if header != '':
         print >> fp, '%s' % header
     print >> fp, '# DIMENSIONS: %i' % dim
-    binwidth=np.zeros(dim)
+    binwidth=np.zeros(dim, dtype=hist.dtype)
     print >> fp, '# BINWIDTH: ',
     for i in range(dim):
         binwidth[i]=(edges[i][-1]-edges[i][0])/nbins[i]
@@ -466,3 +466,6 @@ def format_header_legend(legends, s_init=0, step=1):
         string=string+'@s%i legend "%s"\n' % (s, legends[i])
         s+=step
     return string
+
+def create_legends_from_list( l, prefix="", suffix="" ):
+    return [ prefix+str(x)+suffix for x in l ]

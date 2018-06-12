@@ -20,24 +20,6 @@ def normalise_vecs(v, ax):
     shape=v.shape
     return np.array([ [v[i,j]/n[i,j] for j in range(shape[1])] for i in range(shape[0]) ])
 
-def get_spherical_coords_single(uv):
-    ret = np.zeros(3)
-    ret[0]= np.linalg.norm(uv)
-    ret[1]= np.arctan2(uv[1], uv[0])
-    ret[2]= np.arccos(uv[2]/ret[0])
-    return ret
-
-def get_spherical_coords(uv):
-    """
-    Note: this does not assume unit vectors, and so should be safe.
-    """
-    sh = uv.shape
-    rtp = np.zeros(sh)
-    rtp[...,0] = np.linalg.norm(uv,axis=-1)
-    rtp[...,1] = np.arctan2(uv[...,1], uv[...,0])
-    rtp[...,2] = np.arccos(uv[...,2]/rtp[...,0])
-    return rtp
-
 def assert_seltxt(mol, txt):
     ind = mol.topology.select(txt)
     if len(ind) == 0:
@@ -205,8 +187,8 @@ def Ct_Palmer_inner(vecs):
     sh = vecs.shape
     nFr  = sh[-2]
     nPts = int(sh[-2]/2.0)
-    Ct  = np.zeros( nPts )
-    dCt = np.zeros( nPts )
+    Ct  = np.zeros( nPts, dtype=vecs.dtype)
+    dCt = np.zeros( nPts, dtype=vecs.dtype)
     # Compute each data point across all samples, and average across all remaining dimensions.
     for dt in range(1,nPts+1):
         P2 = -0.5 + 1.5*np.square( np.einsum('...i,...i', vecs[...,0:nFr-dt,:], vecs[...,dt:nFr,:]) )
@@ -222,7 +204,7 @@ def calculate_Ct_Palmer(vecs):
     """
     Ct=[] ; dCt = [] ;
     for i in range(nBonds):
-        Ct_loc, dCt_loc = Ct_Palmer_inner( np.take(vecs, i, axis=-2) )
+        Ct_loc, dCt_loc = Ct_Palmer_inner( np.take(vecs, i, axis=-2))
         Ct.append( Ct_loc ) ; dCt.append( dCt_loc )
         print "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1])
 
@@ -245,8 +227,8 @@ def reformat_vecs_by_tau(vecs, dt, tau):
     nFiles = len(vecs)
     nFramesPerChunk=int(tau/dt)
     print "    ...debug: Using %i frames per chunk based on tau/dt (%g/%g)." % (nFramesPerChunk, tau, dt)
-    used_frames     = np.zeros(nFiles)
-    remainders = np.zeros(nFiles)
+    used_frames     = np.zeros(nFiles, dtype=int)
+    remainders = np.zeros(nFiles, dtype=int)
     for i in range(nFiles):
         nFrames = vecs[i].shape[0]
         used_frames[i] = int(nFrames/nFramesPerChunk)*nFramesPerChunk
@@ -254,7 +236,7 @@ def reformat_vecs_by_tau(vecs, dt, tau):
         print "    ...Source %i divided into %i chunks. Usage rate: %g %%" % (i, used_frames[i]/nFramesPerChunk, 100.0*used_frames[i]/nFrames )
 
     nFramesTot = int( used_frames.sum() )
-    out = np.zeros( ( nFramesTot, vecs[0].shape[1], vecs[0].shape[2] ) )
+    out = np.zeros( ( nFramesTot, vecs[0].shape[1], vecs[0].shape[2] ) , dtype=vecs[0].dtype)
     start = 0
     for i in range(nFiles):
         end=int(start+used_frames[i])
@@ -270,18 +252,6 @@ def LS_one(x, S2, tau_c):
         return (1-S2)*np.exp(-x/tau_c)+S2
     else:
         return S2
-
-def fit_Ct(x, ylist):
-    guess=(0.5,x[-1]/2.0)
-    nFits=len(ylist)
-    params=np.zeros((nFits,2))
-    errors=np.zeros((nFits,2))
-    for i in range(len(ylist)):
-        popt, pcov = curve_fit(LS_one, x, ylist[i], p0=guess, method='dogbox', jac='3-point')
-        perr = np.sqrt(np.diag(pcov))
-        params[i]=popt
-        errors[i]=perr
-    return params.T, errors.T
 
 def get_indices_mdtraj( seltxt, top, filename):
     """
@@ -343,6 +313,8 @@ if __name__ == '__main__':
                               'long MD data be split into short chunks to remove timescale not detectable by NMR.')
     parser.add_argument('--vecDist', dest='bDoVecDistrib', action='store_true', default=False,
                          help='Print the vectors distribution in spherical coordinates. In the frame of the PDB unless q_rot is given.')
+    parser.add_argument('--binary', action='store_true', default=False,
+                         help='Change the vector storage format to numpy binary to save a bit of space and read speed for large files.')
     parser.add_argument('--vecHist', dest='bDoVecHist', action='store_true', default=False,
                          help='Print the 2D-histogram rather than just the collection of vecs.')
     parser.add_argument('--vecAvg', dest='bDoVecAverage', action='store_true', default=False,
@@ -365,12 +337,13 @@ if __name__ == '__main__':
         print_selection_help()
         sys.exit(0)
 
-    # Read Parameters here
+    # = = = Read Parameters here = = =
     tau_memory=args.tau
     bDoS2=args.bDoS2
     bDoCt=args.bDoCt
     bDoVecDistrib=args.bDoVecDistrib
     bDoVecHist=args.bDoVecHist
+    bBinary=args.binary
     if bDoVecHist and not bDoVecDistrib:
         bDoVecDistrib=True
     bDoVecAverage=args.bDoVecAverage
@@ -463,6 +436,7 @@ if __name__ == '__main__':
     vecXH = reformat_vecs_by_tau(vecXH, deltaT, tau_memory)
     vecXHfit = reformat_vecs_by_tau(vecXHfit, deltaT, tau_memory)
 
+    # print type(vecXH[0,0,0,0])
     # First analysis to be done is the C(t)-analysis, since that cannot be done after compressing the 4D to 3D.
     if bDoCt:
         print "= = = Conducting Ct_external using Palmer's approach."
@@ -503,19 +477,25 @@ if __name__ == '__main__':
     if bDoVecDistrib:
         print "= = = Converting vectors into spherical coordinates."
         try:
-            rtp = get_spherical_coords(vecXHfit)
+            rtp = gm.xyz_to_rtp(vecXHfit)
+            # print type(rtp[0,0,0])
         except MemoryError:
-            print >> sys.stderr, "= = WARNING: Ran out of memory running spherical conversion! Writing distribution and aborting afterwards."
-            for i in range(sh[0]*sh[1]):
-                vecXHfit[i] = get_spherical_coords(vecXHfit[i])
-            vecXHfit = np.transpose(vecXHfit,axes=(1,0,2)) ;# Convert from time first, to resid first.
-            gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, vecXHfit, (1,2))
+            print >> sys.stderr, "= = WARNING: Ran out of memory running spherical conversion!"
             sys.exit(9)
+            # = = = Don't bother rescuing.
+            #for i in range(sh[0]*sh[1]):
+            #    vecXHfit[i] = get_spherical_coords(vecXHfit[i])
+            #vecXHfit = np.transpose(vecXHfit,axes=(1,0,2)) ;# Convert from time first, to resid first.
+            #gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, vecXHfit, (1,2))
+            #sys.exit(9)
 
         rtp = np.transpose(rtp,axes=(1,0,2)) ;# Convert from time first, to resid first.
-        print rtp.shape
+        print "= = = Debug: shape of the spherical vector distribution:", rtp.shape
         if not bDoVecHist:
-            gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, rtp, (1,2))
+            if bBinary:
+                np.savez_compressed(out_pref+'_PhiTheta.npz', names=resXH, data=rtp[...,1:3])
+            else:
+                gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, rtp, (1,2))
         else:
             rtp = np.delete( rtp, 0, axis=2)
             # Should only bin on equal-area projections to conserve relative bin heights.
