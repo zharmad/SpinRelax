@@ -289,7 +289,7 @@ for path in $foldlist ; do
             echo "= = = Not generating reference coordinates."
         fi
         if [[ "$bGenTraj" == "True" ]] && [ ! -e $sxtc_loc ] ; then
-            [[ "$bGenTrajDefault" == "True" ]] && gentrj_loc="$gentrj $sxtc_loc $tpr_loc" || gentrj_loc=$gentrj
+            [[ "$bGenTrajDefault" == "True" ]] && gentrj_loc="$gentrj $sxtc_loc $tpr_loc" || gentrj_loc=$gentrj_default
             echo "= = = Running solute trajectory generation..."
             echo "      ...using command: $gentrj_loc"
             $gentrj_loc

@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+import csv
 # This function returns a string that contains
 # the value of the function with its error formatted
 # to the same exponent.
@@ -24,6 +25,24 @@ def format_float_with_error(val, err, prec=4):
     #sig_out = prec+int(np.abs(exp_val-exp_err))
     #r = " %.*e%i +- %.*e%i " % ( sig_val, val*10**(exp_out-exp_val), exp_out, sig_err, )
     return "%.*fe%i +- %.*fe%i" % (sig_out, val*10**(-exp_out), exp_out, sig_out, err*10**(-exp_out), exp_out)
+
+def load_matrix(fn):
+    x=[]
+    bFirst=True
+    for l in open(fn):
+        if l[0]=="#" or l[0]=="@" or l[0]=="&" or l=="" or l[0]=="\n":
+            continue
+        line = l.split()
+        x.append([float(e) for e in line])
+        if bFirst:
+            xl=len(line)
+            bFirst=False
+        else:
+            if len(line) != xl:
+                print >> sys.stderr, "= = = WARNING: file read in general_scripts.load_matrix() is not rectangular!"
+                print >> sys.stderr, "= = = ...detected a different row length to the first row read: %d, %d" % (xl, len(line))
+
+    return np.array(x)
 
 def load_xy(fn):
     x=[]
@@ -63,6 +82,65 @@ def load_xydy(fn):
             sys.exit(1)
         dy.append(float(lines[2]))
     return np.array(x), np.array(y), np.array(dy)
+
+def load_block_as_numpy(fn, ignores='#@', newblock='&', bVerbose=False ):
+    """
+    load_numpyblock transforms a freeform input file into an numpy array,
+    without explicitly checking that all numbers are well-formated.
+    1) It expects to ignore any lines starting with a comment character from the given set
+    (by default the xmgrace '#' for comments and '@' for commands). Any empty lines
+    will by default be also ignored for safety purposes.
+    2) It will take the character '&' to denote termination of a 2D-block.
+
+    Special arguments:
+    - For newline delimited 3D arrays such as gnuplot, please give the empty string '' to the newblock argument.
+    - For files where text are not commented such as synchroton data files, include the string 'alpha' in ingores,
+      this will add [a-zA-Z]
+    """
+    out3D=[] ; out2D=[]
+    bEmptyAsNewblock = ( newblock == '' )
+    bAlpha = ( 'alpha' in ignores )
+    if bAlpha:
+        ignores = ignores.replace('alpha','')
+
+    if bVerbose:
+        print "= = load_block_as_numpy is reading file %s ..." % fn
+    for l in open(fn):
+        if any( l[0]==char for char in ignores ):
+            continue
+        if bAlpha and l[0].isalpha():
+            continue
+        if l[0]=='':
+            if bEmptyAsNewblock:
+                out3D.append( out2D ) ; out2D = []
+            continue
+        if any( l[0]==char for char in newblock ):
+            # Empty newblocks autofail this condition, AFAIK.
+            out3D.append( out2D ) ; out2D = []
+            continue
+        # Assume to be data line.
+        lines = l.split()
+        out2D.append( [ float(i) for i in lines ] )
+
+    if bVerbose:
+        print "= = ... read finished."
+    # Now determine dimensionality. Three are three cases.
+    if out3D == []:
+        # Basic 2D without "&" character.
+        return np.array( out2D )
+    else:
+        # Potential 3D data.
+        if out2D != []:
+            # Unclean input file where the final 2D-set does no have the required "&"
+            out3D.append( out2D ) ; out2D = []
+        if len(out3D) == 1:
+            # Basic 2D set but terminated with "&" character
+            return np.array( out3D[0] )
+        else:
+            # Full 3D set
+            return np.array( out3D )
+    # Impossible section.
+    return -1
 
 def load_xylist(fn):
     xlist=[] ; ylist=[]
@@ -109,7 +187,9 @@ def load_sxydylist(fn, key="legend"):
     x=[] ; y=[] ; dy=[]
     for l in open(fn):
         lines = l.split()
-        if l[0]=="#" or l[0]=="@" or l=="":
+        if l=="" or l=="\n":
+            continue
+        if l[0]=="#" or l[0]=="@":
             if key in l:
                 leglist.append(lines[-1].strip('"'))
             continue
@@ -298,12 +378,12 @@ def print_gplot_hist(fn, hist, edges, header='', bSphere=False):
                 print >> fp, '%g %g %g' % (xavg, yavg, hist[eX][eY])
             print >> fp, '%g %g %g' % (xavg, ymax, hist[eX][-1])
             print >> fp, ''
-        # Print first line again to complete sphere
-        print >> fp, '%g %g %g' % (xmin, ymin, hist[0][0])
+        # Print first line again to complete sphere, with 2-pi deviation just in case.
+        print >> fp, '%g %g %g' % (xmin+2*np.pi, ymin, hist[0][0])
         for eY in range(nbins[1]):
             yavg=0.5*(edges[1][eY]+edges[1][eY+1])
-            print >> fp, '%g %g %g' % (xmin, yavg, hist[0][eY])
-        print >> fp, '%g %g %g' % (xmin, ymax, hist[0][-1])
+            print >> fp, '%g %g %g' % (xmin+2*np.pi, yavg, hist[0][eY])
+        print >> fp, '%g %g %g' % (xmin+2*np.pi, ymax, hist[0][-1])
         print >> fp, ''
     else:
         for index, val in np.ndenumerate(hist):
@@ -333,3 +413,56 @@ def print_gplot_4d(fn, datablock, x, y, z, header=''):
                 print >> fp, "%g %g %g %g" % (x[i], y[j], z[k], datablock[i,j,k])
 
     fp.close()
+
+def print_numpy_block(fn, data, header='', delim='&', axis=-1):
+    """
+    Unformatted output for numpy arrays in 2D or 3D.
+    axis == -1 means each line spans the last  axis of data.
+    axis ==  0 means each line spans the first axis of data.
+    """
+    if axis != 0 and axis != -1:
+        print >> sys.stderr, "= = ERROR in print_numpy_block, axis argument must be either 0 or -1 !"
+        return -1
+    shape = data.shape
+    dims= len(shape)
+    if dims > 3 :
+        print >> sys.stderr, "= = ERROR in print_numpy_block, cannot yet deal with 4+ dimensions in numpy array!"
+        return -1
+
+    fp = open(fn, 'w')
+    writer = csv.writer(fp, delimiter=' ')
+    if header != '':
+        print >> fp, header
+    if dims == 2:
+        if axis == -1:
+            for i in range(shape[0]):
+                writer.writerow(data[i])
+        elif axis == 0:
+            for i in range(shape[1]):
+                writer.writerow(data[:,i])
+    elif dims == 3:
+        if axis == -1:
+            for i in range(shape[0]):
+                for j in range(shape[1]):
+                    for k in range(shape[2]):
+                        print >> fp, '%g ' % data[i,j,k],
+                    print >> fp, '\n'
+                print >> fp, delim
+        elif axis == 0:
+            for i in range(shape[1]):
+                for j in range(shape[2]):
+                    for k in range(shape[0]):
+                        print >> fp, '%g ' % data[k,i,j],
+                    print >> fp, '\n'
+                print >> fp, delim
+    # Done.
+    fp.close()
+
+def format_header_legend(legends, s_init=0, step=1):
+    string=''
+    nLegs=len(legends)
+    s=s_init
+    for i in range(nLegs):
+        string=string+'@s%i legend "%s"\n' % (s, legends[i])
+        s+=step
+    return string

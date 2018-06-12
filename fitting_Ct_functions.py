@@ -47,6 +47,19 @@ def func_exp_decay10(t, A, tau_a, B, tau_b, G, tau_g, D, tau_d, E, tau_e):
 def func_exp_decay11(t, S2, A, tau_a, B, tau_b, G, tau_g, D, tau_d, E, tau_e):
     return S2 + A*np.exp(-t/tau_a) + B*np.exp(-t/tau_b) + G*np.exp(-t/tau_g) + D*np.exp(-t/tau_d) + E*np.exp(-t/tau_e)
 
+def _bound_check(func, params):
+    """
+    Hack for now.
+    """
+    if len(params) == 1:
+        return False
+    elif len(params) %2 == 0 :
+        s = sum(params[0::2])
+        return (s>1)
+    else:
+        s = params[0]+sum(params[1::2])
+        return (s>1)
+
 def _return_parameter_names(num_pars):
     if num_pars==1:
         return ['tau_a']
@@ -72,7 +85,6 @@ def _return_parameter_names(num_pars):
          return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d', 'C_e', 'tau_e']
 
     return []
-
 
 
 def sort_parameters(num_pars, params):
@@ -137,10 +149,16 @@ def do_LSstyle_fit(num_pars, x, y, dy=[]):
     else:
         popt, popv = curve_fit(func, x, y, p0=guess, bounds=bound)
 
+
     ymodel=[ func(x[i], *popt) for i in range(len(x)) ]
     #print ymodel
 
-    return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
+    bExceed=_bound_check(func, popt)
+    if bExceed:
+        print >> sys.stderr, "= = = WARNING, curve fitting in do_LSstyle_fit returns a sum>1.//"
+        return 9999.99, popt, np.sqrt(np.diag(popv)), ymodel
+    else:
+        return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
 
 def do_Expstyle_fit(num_pars, x, y, dy=[]):
     if num_pars==1:
@@ -188,7 +206,12 @@ def do_Expstyle_fit(num_pars, x, y, dy=[]):
     ymodel=[ func(x[i], *popt) for i in range(len(x)) ]
     #print ymodel
 
-    return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
+    bExceed=_bound_check(func, popt)
+    if bExceed:
+        print >> sys.stderr, "= = = WARNING, curve fitting in do_LSstyle_fit returns a sum>1.//"
+        return 9999.99, popt, np.sqrt(np.diag(popv)), ymodel
+    else:
+        return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
 
 def scan_LSstyle_fits(x, y, dy=[]):
     chi_list=[]

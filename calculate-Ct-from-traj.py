@@ -404,6 +404,7 @@ if __name__ == '__main__':
         print "= = = Loaded single reference file: %s" % (top_filename)
         # Load the atom indices over which the atom fit will take place.
         fit_indices = get_indices_mdtraj(top=ref.topology, filename=top_filename, seltxt=fittxt)
+        print "= = = Debug: fit_indices number: %i" % len(fit_indices)
     else:
         print "= = = Detected multiple reference file inputs."
         bMultiRef=True
@@ -421,6 +422,7 @@ if __name__ == '__main__':
             ref = md.load(top_filename)
             print "= = = Loaded reference file %i: %s" % (i, top_filename)
             fit_indices = get_indices_mdtraj( top=ref.topology, filename=top_filename, seltxt=fittxt)
+            print "= = = Debug: fit_indices number: %i" % len(fit_indices)
         trj = md.load(in_flist[i], top=top_filename)
         print "= = = Loaded trajectory file %s - it has %i atoms and %i frames." % (in_flist[i], trj.n_atoms, trj.n_frames)
         # = = Run sanity check
