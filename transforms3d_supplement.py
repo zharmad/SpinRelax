@@ -77,7 +77,7 @@ def quat_v1v2(v1, v2):
     ax=np.cross(v1,v2)
     if all( np.isnan(ax) ):
         # = = = This happens when the two vectors are identical
-        return qop.qeye()
+        return qops.qeye()
     else:
         # = = = Do normalisation within the next function
         return qops.axangle2quat(ax, th)
@@ -154,6 +154,12 @@ def quat_frame_transform_min(axes):
 def quat_frame_transform_inv(axes):
     return qops.qconjugate(quat_frame_transform(axes))
 
+def quat_mult(q1,q2):
+    q=np.zeros_like(q1)
+    q[0]  = q1[0]*q2[0] - np.einsum('...i,...i',q1[1:4],q2[1:4])
+    q[1:4]= q1[0]*q2[1:4] + q2[0]*q1[1:4] + np.cross(q1[1:4],q2[1:4])
+    return q
+
 def quat_mult_simd(q1, q2):
     """
     SIMD-version of transforms3d.quaternions.qmult using vector operations.
@@ -173,7 +179,7 @@ def quat_mult_simd(q1, q2):
     #del v1 ; del v2
     out=np.zeros_like(q1)
     out[...,0]  = q1[...,0]*q2[...,0] - np.einsum('...i,...i',q1[...,1:4],q2[...,1:4])
-    out[...,1:4]= q1[...,0,None]*q2[...,1:4]+q2[...,0,None]*q1[...,1:4]-np.cross(q1[...,1:4],q2[...,1:4])
+    out[...,1:4]= q1[...,0,None]*q2[...,1:4] + q2[...,0,None]*q1[...,1:4] + np.cross(q1[...,1:4],q2[...,1:4])
     return out
 
 def quat_invert(q):

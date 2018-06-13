@@ -71,13 +71,23 @@ def calculate_anisotropies( D, chunkD=[]):
         # Output format [ (iso, isoErr), (aniL, aniLErr), (rhomL,ehomLErr), ... ]
         return out
 
+def obtain_v_dqs(ndat, delta, q):
+    out=np.zeros((ndat,3))
+    for i in range(ndat):
+        j=i+delta
+        #Since everything is squared does quat_reduce matter? ...no, but do so anyway.
+        dq=qs.quat_reduce(qops.qmult( qops.qinverse(q[i]), q[j]))
+        out[i]=dq[1:4]
+    return out
+
 def obtain_self_dq(q, delta):
     """
     Vectorise { q^{-1}(t) q(t+delta) } over the range of q.
     Assumes that there are only two input dimensions q(N, 4) and returns dq(N-delta,4) with imaging to reduce rotations
     """
     #print q.shape, delta
-    return qs.vecnorm_NDarray( qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) ) )
+    #return qs.vecnorm_NDarray( qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) ) )
+    return qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) )
 
 def average_LegendreP1quat(ndat, vq):
     out=0.0

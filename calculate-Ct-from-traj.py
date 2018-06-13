@@ -74,7 +74,7 @@ def obtain_XHvecs(traj, Hseltxt, Xseltxt):
 
     # Extract submatrix of vector trajectory
     vecXH = np.take(traj.xyz, indexH, axis=1) - np.take(traj.xyz, indexX, axis=1)
-    vecXH = qs.vecnorm_NDarray(v, axis=2)
+    vecXH = qs.vecnorm_NDarray(vecXH, axis=2)
 
     return  vecXH
 
@@ -98,29 +98,28 @@ def calculate_S2_by_P2cosTheta(vecs, delta_t=-1, tau_memory=-1):
     """
     sh=vecs.shape
     nDim=sh[-1]
-    if sh==2:
+    if len(sh)==2:
         nFrames=vec.shape[0]
         if delta_t < 0 or tau_memory < 0:
             #Use no block-averaging
-            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ij,ij->', vecs, vecs ) ) ) / nFrames
+            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ij,ij->', vecs, vecs ) ) ) / nFrames
             return P2cosTheta
         else:
             nFramesPerBlock = int( tau_memory / delta_t )
             nBlocks = int( nFrames / nFramesPerBlock )
             # Reshape while dumping extra frames
             vecs = vecs[:nBlocks*nFramesPerBlock].reshape( nBlocks, nFramesPerBlock, nDim )
-            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijk,ijk->i', vecs, vecs ) ) ) / nFramesPerBlock
+            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijk,ijk->i', vecs, vecs ) ) ) / nFramesPerBlock
             S2  = np.mean( P2cosTheta )
             dS2 = np.std( P2cosTheta ) / ( np.sqrt(nBlocks) - 1.0 )
             return np.array( [S2,dS2])
-
-    elif sh==3:
+    elif len(sh)==3:
         # = = = Expect dimensions (time, nResidues, 3)
         nFrames = vecs.shape[0]
         nResidues  = vecs.shape[1]
         if delta_t < 0 or tau_memory < 0:
             #Use no block-averaging
-            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijk,ijk->j', vecs, vecs ) ) ) / nFrames
+            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijk,ijk->j', vecs, vecs ) ) ) / nFrames
             return P2cosTheta
         else:
             #Use input time to determine block averaging.
@@ -128,7 +127,7 @@ def calculate_S2_by_P2cosTheta(vecs, delta_t=-1, tau_memory=-1):
             nBlocks = int( nFrames / nFramesPerBlock )
             # Reshape while dumping extra frames
             vecs = vecs[:nBlocks*nFramesPerBlock].reshape( nBlocks, nFramesPerBlock, nResidues, nDim )
-            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijkl,ijkl->ik', vecs, vecs ) ) ) / nFramesPerBlock
+            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijkl,ijkl->ik', vecs, vecs ) ) ) / nFramesPerBlock
             S2  = np.mean( P2cosTheta, axis=0 )
             dS2 = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nBlocks) - 1.0 )
             return np.stack( (S2,dS2), axis=-1 )
@@ -205,13 +204,14 @@ def calculate_Ct_Palmer(vecs):
         sys.exit(1)
 
     nReplicates=sh[0] ; nDeltas=sh[1]/2 ; nResidues=sh[2]
-    Ct = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
-    for delta in range(1:1+nDeltas):
+    Ct  = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
+    dCt = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
+    for delta in range(1,1+nDeltas):
         nVals=sh[1]-delta
         # = = Create < P2CosTheta > with dimensions (replicates, resid ) then average across replicates with SEM.
-        P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijkl,ijkl->ik', vecs[:,:-delta,...], vecs[:,delta:,...] ) ) )/nVals
-        Ct[dt-1]  = np.mean( P2cosTheta, axis=0 )
-        dCt[dt-1] = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nReplicates) - 1.0 )
+        P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijkl,ijkl->ik', vecs[:,:-delta,...], vecs[:,delta:,...] ) ) )/nVals
+        Ct[delta-1]  = np.mean( P2cosTheta, axis=0 )
+        dCt[delta-1] = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nReplicates) - 1.0 )
 
     #print "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1])
     # Return with dimensions ( nDeltas, nResidues ) by default.
@@ -359,7 +359,7 @@ if __name__ == '__main__':
     bDoVecAverage=args.bDoVecAverage
     if args.vecRotQ!='':
         bRotVec=True
-        q_rot = [ float(v) for v in args.vecRotQ.split() ]
+        q_rot = np.array( [ float(v) for v in args.vecRotQ.split() ] )
         if len(q_rot) != 4 or not q_ops.qisunit(q_rot):
             print "= = = ERROR: input rotation quaternion is malformed!", q_rot
             sys.exit(23)
@@ -441,40 +441,6 @@ if __name__ == '__main__':
     vecXH_loc = [] ; vecXHfit_loc = []
     # = = =
     print "= = Loading finished."
-
-    if bDoS2:
-        if tau_memory != None:
-            print "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps"
-            S2 = calculate_S2_by_P2cosTheta(vecXHfit, deltaT, tau_memory)
-        else:
-            print "= = = Conducting S2 analysis directly from trajectories."
-            S2 = calculate_S2_by_P2cosTheta(vecXHfit)
-
-        gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
-        print "      ...complete."
-
-    if bRotVec:
-        print "= = = Rotating all fitted vectors by the input quaternion into PAF."
-        #try:
-        #    vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
-        #except MemoryError:
-        #    print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Doing this the slower way."
-        for i in range(sh[0]*sh[1]):
-            vecXHfit[i] = qs.rotate_vector_simd(vecXHfit[i], q_rot)
-
-    if bDoVecAverage:
-        # Note: gs-script normalises along the last axis, after this mean operation
-        vecXHfitavg = (gs.normalise_vector_array( np.mean(vecXHfit, axis=0) ))
-        gs.print_xylist(out_pref+'_avgvec.dat', resXH, np.array(vecXHfitavg).T, True)
-        del vecXHfitavg
-
-
-
-
-
-
-
-
 
     print "= = Reformatting all vecXH information into chunks of tau ( %g ) " % tau_memory
 
@@ -570,6 +536,17 @@ if __name__ == '__main__':
                     gs.print_gplot_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).', bSphere=True)
                     #gs.print_R_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).')
                     print "= = = Written to output: ", ofile
+
+    if bDoS2:
+        if tau_memory != None:
+            print "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps"
+            S2 = calculate_S2_by_P2cosTheta(vecXHfit, deltaT, tau_memory)
+        else:
+            print "= = = Conducting S2 analysis directly from trajectories."
+            S2 = calculate_S2_by_P2cosTheta(vecXHfit)
+
+        gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
+        print "      ...complete."
 
     time_stop=time.clock()
     #Report time
