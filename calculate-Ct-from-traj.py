@@ -15,11 +15,6 @@ def print_selection_help():
 def P2(x):
     return 1.5*x**2.0-0.5
 
-def normalise_vecs(v, ax):
-    n=np.linalg.norm(v,axis=ax)
-    shape=v.shape
-    return np.array([ [v[i,j]/n[i,j] for j in range(shape[1])] for i in range(shape[0]) ])
-
 def assert_seltxt(mol, txt):
     ind = mol.topology.select(txt)
     if len(ind) == 0:
@@ -79,49 +74,67 @@ def obtain_XHvecs(traj, Hseltxt, Xseltxt):
 
     # Extract submatrix of vector trajectory
     vecXH = np.take(traj.xyz, indexH, axis=1) - np.take(traj.xyz, indexX, axis=1)
-    vecXH = normalise_vecs(vecXH, 2)
+    vecXH = qs.vecnorm_NDarray(v, axis=2)
 
     return  vecXH
 
 # 3 Sum_i,j <e_i * e_j >^2 - 1
-def S2_by_outer(v):
+def S2_by_P2cosTheta(v):
+    """
+    Two
+    """
     outer = np.mean([ np.outer(v[i],v[i]) for i in range(len(v))], axis=0)
     return 1.5*np.sum(outer**2.0)-0.5
 
-def calculate_S2_by_outer(vecs, delta_t=-1, tau_memory=-1):
+def calculate_S2_by_P2cosTheta(vecs, delta_t=-1, tau_memory=-1):
     """
-    Calculates the general order parameter S2 by using the quantity:
-    3*Sum_i,j <e_i * e_j >^2 - 1
-    Returns a single vector S2 with dimension num_vecs when no memory time data is specified.
-    Elsewise, return array (N_vec, 2) with average S2 and SEM.
+    Calculates the general order parameter S2 by using the quantity 3*Sum_i,j <e_i * e_j >^2 - 1 , which is still P2( CosTheta )
+    Expects vecs to be of dimensions ( time, nResidues, 3 )
+
+    Unlike Ct_by_Palmer, this simply dispenses with any delta_t calculations and directly collapses all dimensions by default.
+    Thus returns an 1D-S2 with no errors.
+
+    When both delta_t and tau_memory are given, then returns average and SEM of the S2 samples of dimensions ( nResidues, 2 )
     """
-    num_frames = vecs.shape[0]
-    num_bonds  = vecs.shape[1]
-    if delta_t < 0 or tau_memory < 0:
-        #Use no block-averaging
-        S2=[]
-        for i in range(num_bonds):
-            S2.append( S2_by_outer(np.take(vecs,i, axis=1)) )
-        return np.array(S2)
+    sh=vecs.shape
+    nDim=sh[-1]
+    if sh==2:
+        nFrames=vec.shape[0]
+        if delta_t < 0 or tau_memory < 0:
+            #Use no block-averaging
+            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ij,ij->', vecs, vecs ) ) ) / nFrames
+            return P2cosTheta
+        else:
+            nFramesPerBlock = int( tau_memory / delta_t )
+            nBlocks = int( nFrames / nFramesPerBlock )
+            # Reshape while dumping extra frames
+            vecs = vecs[:nBlocks*nFramesPerBlock].reshape( nBlocks, nFramesPerBlock, nDim )
+            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijk,ijk->i', vecs, vecs ) ) ) / nFramesPerBlock
+            S2  = np.mean( P2cosTheta )
+            dS2 = np.std( P2cosTheta ) / ( np.sqrt(nBlocks) - 1.0 )
+            return np.array( [S2,dS2])
+
+    elif sh==3:
+        # = = = Expect dimensions (time, nResidues, 3)
+        nFrames = vecs.shape[0]
+        nResidues  = vecs.shape[1]
+        if delta_t < 0 or tau_memory < 0:
+            #Use no block-averaging
+            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijk,ijk->j', vecs, vecs ) ) ) / nFrames
+            return P2cosTheta
+        else:
+            #Use input time to determine block averaging.
+            nFramesPerBlock = int( tau_memory / delta_t )
+            nBlocks = int( nFrames / nFramesPerBlock )
+            # Reshape while dumping extra frames
+            vecs = vecs[:nBlocks*nFramesPerBlock].reshape( nBlocks, nFramesPerBlock, nResidues, nDim )
+            P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijkl,ijkl->ik', vecs, vecs ) ) ) / nFramesPerBlock
+            S2  = np.mean( P2cosTheta, axis=0 )
+            dS2 = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nBlocks) - 1.0 )
+            return np.stack( (S2,dS2), axis=-1 )
     else:
-        #Use input time to determine block averaging.
-        num_frames_block = int( tau_memory / delta_t )
-        S2=[]
-        for i in range(nBonds):
-            avg=0.0
-            av2=0.0
-            c=0.0
-            for j in range(0, num_frames, num_frames_block):
-                if num_frames_block > num_frames - j:
-                    break
-                S2now = S2_by_outer( np.take(vecs, i, axis=1)[j:j+num_frames_block] )
-                avg += S2now
-                av2 += S2now*S2now
-                c+=1.0
-            avg/=c
-            SEM=np.sqrt( (av2/c-avg**2.0)/c )
-            S2.append( (avg, SEM) )
-        return np.array(S2)
+        print >> sys.stderr, "= = = ERROR in calculate_S2_by_P2cosTheta: unsupported number of dimensions! vecs.shape: ", sh
+        sys.exit(1)
 
 # iRED and wiRED implemented according to reading of
 # Gu, Li, and Bruschweiler, JCTC, 2014
@@ -158,56 +171,50 @@ def calculate_S2_by_iRED(vecs, dt, tau):
     nChunks=floor(nFrames*dt/(5*tau))
     nFrChunk=floor(5*tau/dt)
 
-def Ct_by_Palmer_old(vecs, dt, tau):
-    """
-    Vector auto-correlation function using Palmer's method, where only chunks of tau_memory
-    are considered in each trajectory. Thus, maximum of C(t) will be tau/2.0
-    """
-    nFrames=len(vecs)
-    nChunks=int(nFrames*dt/tau)
-    nFrChunk=int(tau/dt)
-    #np.correlate(a,a,mode='full')
-    tot=np.zeros((nChunks,nFrChunk/2))
-    #Obtain sample for each chunk spanning tau.
-    for j in range(0,nChunks):
-        off=j*nFrChunk
-        # Average across frames of trajectory in a given chunk.
-        Ct_sample=[ np.mean([ P2(np.dot(vecs[i+off],vecs[i+off+dFr])) for i in range(nFrChunk-dFr)]) for dFr in range(1,nFrChunk/2+1) ]
-        tot[j]=Ct_sample
-    #Average across samples.
-    ret = tot.mean(axis=0)
-    return ret
-
-def Ct_Palmer_inner(vecs):
-    """
-    Treats 3D+ vectors of form ([chunks], frames, XYZ), calculating the autocorrelation C(t)
-    only across each set of frames, then averaging across all chunks in the upper dimensions.
-    Returns 1D array Ct of length frames/2 .
-    """
-    sh = vecs.shape
-    nFr  = sh[-2]
-    nPts = int(sh[-2]/2.0)
-    Ct  = np.zeros( nPts, dtype=vecs.dtype)
-    dCt = np.zeros( nPts, dtype=vecs.dtype)
-    # Compute each data point across all samples, and average across all remaining dimensions.
-    for dt in range(1,nPts+1):
-        P2 = -0.5 + 1.5*np.square( np.einsum('...i,...i', vecs[...,0:nFr-dt,:], vecs[...,dt:nFr,:]) )
-        Ct[dt-1]  = np.mean( P2 )
-        dCt[dt-1] = np.std( P2 ) / np.sqrt( P2.size )
-    return Ct, dCt
+#def Ct_Palmer_inner(vecs):
+#    """
+#    Treats 3D+ vectors of form ([chunks], frames, XYZ), calculating the autocorrelation C(t)
+#    only across each set of frames, then averaging across all chunks in the upper dimensions.
+#    Returns 1D array Ct of length frames/2 .
+#    """
+#    sh = vecs.shape
+#    nFr  = sh[-2]
+#    nPts = int(sh[-2]/2.0)
+#    Ct  = np.zeros( nPts, dtype=vecs.dtype)
+#    dCt = np.zeros( nPts, dtype=vecs.dtype)
+#    # Compute each data point across all samples, and average across all remaining dimensions.
+#    for dt in range(1,nPts+1):
+#        P2 = -0.5 + 1.5*np.square( np.einsum('...i,...i', vecs[...,0:nFr-dt,:], vecs[...,dt:nFr,:]) )
+#        Ct[dt-1]  = np.mean( P2 )
+#        dCt[dt-1] = np.std( P2 ) / np.sqrt( P2.size )
+#    return Ct, dCt
 
 def calculate_Ct_Palmer(vecs):
     """
-    This half of the proc handles the spliting of the vector array into chunks manageable by the subrouting.
-    It will assumes that vecs coms in the form ( ..., bonds, XYZ).
-    The function Ct_Palmer_inner handles all upper dimensions.
+    (Rewritten) This proc assumes vecs to be of square dimensions ( nReplicates, nFrames, nResidues, 3).
+    Operates a single einsum per delta-t timepoints to produce the P2(costheta) with dimensions ( nReplicates, nResidues )
+    then produces the statistics from there according to Palmer's theory that trajectory be divide into N-replcates with a fixed memory time.
+    Output Ct and dCt should take dimensions ( nResidues, nDeltas )
     """
-    Ct=[] ; dCt = [] ;
-    for i in range(nBonds):
-        Ct_loc, dCt_loc = Ct_Palmer_inner( np.take(vecs, i, axis=-2))
-        Ct.append( Ct_loc ) ; dCt.append( dCt_loc )
-        print "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1])
+    sh = vecs.shape
+    print "= = = Debug of calculate_Ct_Palmer confirming the dimenions of vecs:", sh
 
+    if len(sh)!=4:
+        # Not in the right form...
+        print >> sys.stderr, "= = = ERROR: The input vectors to calculate_Ct_Palmer is not of the expected 4-dimensional form! " % sh
+        sys.exit(1)
+
+    nReplicates=sh[0] ; nDeltas=sh[1]/2 ; nResidues=sh[2]
+    Ct = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
+    for delta in range(1:1+nDeltas):
+        nVals=sh[1]-delta
+        # = = Create < P2CosTheta > with dimensions (replicates, resid ) then average across replicates with SEM.
+        P2cosTheta = ( -0.5+1.5*np.sqare( np.einsum( 'ijkl,ijkl->ik', vecs[:,:-delta,...], vecs[:,delta:,...] ) ) )/nVals
+        Ct[dt-1]  = np.mean( P2cosTheta, axis=0 )
+        dCt[dt-1] = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nReplicates) - 1.0 )
+
+    #print "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1])
+    # Return with dimensions ( nDeltas, nResidues ) by default.
     return Ct, dCt
 
 def calculate_dt(dt, tau):
@@ -219,9 +226,9 @@ def reformat_vecs_by_tau(vecs, dt, tau):
     """
     This proc assumes that vecs list is N 3D-arrays in the form <Nfile>,(frames, bonds, XYZ).
     We take advantage of Palmer's iteration where the trajectory is divided into N chunks each of tau in length,
-    to reformulate everything into fast 4D nparrays of form (nchunk, frames, bonds, XYZ) so as to
+    to reformulate everything into fast 4D np.arrays of form (nchunk, frames, bonds, XYZ) so as to
     take full advantage of broadcasting.
-    where frames will be automatically divisible by the chunk length.
+    This will throw away additional frame data in each trajectory that does not fit into a single block of memory time tau.
     """
     # Don't assume all files have the same number of frames.
     nFiles = len(vecs)
@@ -300,7 +307,7 @@ if __name__ == '__main__':
                              'in C(t)-calculations, but otherwise aggregated.' )
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
-    parser.add_argument('-t','--tau', type=float, dest='tau', default=5000.0,
+    parser.add_argument('-t','--tau', type=float, dest='tau', default=None,
                         help='An estimate of the global tumbling time that is used to ignore internal motions'
                              'on timescales larger than can be measured by NMR relaxation. Same time units as trajectory, usually ps.')
     parser.add_argument('--prefact', type=float, dest='zeta', default=(1.02/1.04)**6,
@@ -341,6 +348,9 @@ if __name__ == '__main__':
     tau_memory=args.tau
     bDoS2=args.bDoS2
     bDoCt=args.bDoCt
+    if bDoCt and tau_memory == None:
+        print >> sys.stderr, "= = = Refusing to fo C(t)-analysis without using a block averaging over memory_time tau!"
+        sys.exit(1)
     bDoVecDistrib=args.bDoVecDistrib
     bDoVecHist=args.bDoVecHist
     bBinary=args.binary
@@ -431,6 +441,41 @@ if __name__ == '__main__':
     vecXH_loc = [] ; vecXHfit_loc = []
     # = = =
     print "= = Loading finished."
+
+    if bDoS2:
+        if tau_memory != None:
+            print "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps"
+            S2 = calculate_S2_by_P2cosTheta(vecXHfit, deltaT, tau_memory)
+        else:
+            print "= = = Conducting S2 analysis directly from trajectories."
+            S2 = calculate_S2_by_P2cosTheta(vecXHfit)
+
+        gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
+        print "      ...complete."
+
+    if bRotVec:
+        print "= = = Rotating all fitted vectors by the input quaternion into PAF."
+        #try:
+        #    vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
+        #except MemoryError:
+        #    print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Doing this the slower way."
+        for i in range(sh[0]*sh[1]):
+            vecXHfit[i] = qs.rotate_vector_simd(vecXHfit[i], q_rot)
+
+    if bDoVecAverage:
+        # Note: gs-script normalises along the last axis, after this mean operation
+        vecXHfitavg = (gs.normalise_vector_array( np.mean(vecXHfit, axis=0) ))
+        gs.print_xylist(out_pref+'_avgvec.dat', resXH, np.array(vecXHfitavg).T, True)
+        del vecXHfitavg
+
+
+
+
+
+
+
+
+
     print "= = Reformatting all vecXH information into chunks of tau ( %g ) " % tau_memory
 
     vecXH = reformat_vecs_by_tau(vecXH, deltaT, tau_memory)
@@ -447,10 +492,10 @@ if __name__ == '__main__':
 
         dt = calculate_dt(deltaT, tau_memory)
         Ct, dCt = calculate_Ct_Palmer(vecXH)
-        gs.print_sxylist(out_pref+'_Ctext.dat', resXH, dt, np.stack( (Ct,dCt), axis=-1) )
+        gs.print_sxylist(out_pref+'_Ctext.dat', resXH, dt, np.stack( (Ct.T,dCt.T), axis=-1) )
         print "= = = Conducting Ct_internal using Palmer's approach."
         Ct, dCt = calculate_Ct_Palmer(vecXHfit)
-        gs.print_sxylist(out_pref+'_Ctint.dat', resXH, dt, np.stack( (Ct,dCt), axis=-1) )
+        gs.print_sxylist(out_pref+'_Ctint.dat', resXH, dt, np.stack( (Ct.T,dCt.T), axis=-1) )
 
     # Compress 4D down to 3D for the rest of the calculations to simplify matters.
     sh = vecXHfit.shape
@@ -493,29 +538,38 @@ if __name__ == '__main__':
         print "= = = Debug: shape of the spherical vector distribution:", rtp.shape
         if not bDoVecHist:
             if bBinary:
-                np.savez_compressed(out_pref+'_PhiTheta.npz', names=resXH, data=rtp[...,1:3])
+                np.savez_compressed(out_pref+'_PhiTheta.npz', names=resXH, dataType='PhiTheta', bHistogram=False, data=rtp[...,1:3])
             else:
                 gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, rtp, (1,2))
         else:
+            # = = = Conduct histograms on the dimension of phi, cos(theta). The Lambert Cylindrical projection preserves sample area, and therefore preserves the bin occupancy rates.
+            # = = = ...this leads to relative bin occupancies that make more sense when plotted directly.
             rtp = np.delete( rtp, 0, axis=2)
-            # Should only bin on equal-area projections to conserve relative bin heights.
             print "= = = Histgrams will use Lambert Cylindrical projection by converting Theta spanning (0,pi) to cos(Theta) spanning (-1,1)"
             rtp[...,1]=np.cos(rtp[...,1])
-            hist_list=[]
-            for i in range(rtp.shape[0]):
-                #hist, edges = np.histogramdd(rtp[i],bins=(36,36),range=((-np.pi,np.pi),(0,np.pi)),normed=True)
-                hist, edges = np.histogramdd(rtp[i],bins=(72,36),range=((-np.pi,np.pi),(-1,1)),normed=True)
-                ofile=out_pref+'_vecXH_'+str(resXH[i])+'.hist'
-                gs.print_gplot_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).', bSphere=True)
-                #gs.print_R_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).')
-                print "= = = Written to output: ", ofile
 
-    if bDoS2:
-        print "= = = Conducting S2 analysis using memory time", tau_memory, "ps"
-        S2 = calculate_S2_by_outer(vecXHfit, deltaT, tau_memory)
-        #print_sy(out_pref+'_S2.dat', resXH, S2*zeta )
-        gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
-        print "      ...complete."
+            hist_list=np.zeros((nBonds,72,36), dtype=rtp.dtype)
+            bFirst=True
+            for i in range(nBonds):
+                #hist, edges = np.histogramdd(rtp[i],bins=(72,36),range=((-np.pi,np.pi),(0,np.pi)),normed=True)
+                hist, edges = np.histogramdd(rtp[i],bins=(72,36),range=((-np.pi,np.pi),(-1,1)),normed=True)
+                if bFirst:
+                    bFirst=False
+                    edgesAll = edges
+                else:
+                    if np.any(edgesAll!=edges):
+                        print >> sys.stderr, "= = = ERROR: histogram borders are not equal. This should never happen!"
+                        sys.exit(1)
+                hist_list[i]=hist
+
+            if bBinary:
+                np.savez_compressed(out_pref+'_vecXH_histogram.npz', names=resXH, dataType='LambertCylindrical', bHistogram=True, edges=edgesAll, data=hist_list)
+            else:
+                for i in range(nBonds):
+                    ofile=out_pref+'_vecXH_'+str(resXH[i])+'.hist'
+                    gs.print_gplot_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).', bSphere=True)
+                    #gs.print_R_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).')
+                    print "= = = Written to output: ", ofile
 
     time_stop=time.clock()
     #Report time

@@ -531,9 +531,20 @@ if __name__ == '__main__':
             if args.distfn.endswith('.npz'):
                 # = = = Treat as a numpy binary file.
                 obj = np.load(args.distfn)
+                # = = = Determine dats type
                 resNH = obj['names']
-                dist_phis   = obj['data'][...,0]
-                dist_thetas = obj['data'][...,1]
+                if obj['bHistogram']:
+                    if obj['dataType'] != 'LambertCylindrical':
+                        print >> sys.stderr, "= = = Numpy binary datatype not supported! %s" % obj['dataType']
+                        sys.exit(1)
+                    print "= = = ERROR: Histogram input not yet supported!"
+                    sys.exit()
+                else:
+                    if obj['dataType'] != 'PhiTheta':
+                        print >> sys.stderr, "= = = Numpy binary datatype not supported! %s" % obj['dataType']
+                        sys.exit(1)
+                    dist_phis   = obj['data'][...,0]
+                    dist_thetas = obj['data'][...,1]
                 del obj
             else:
                 resNH, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')

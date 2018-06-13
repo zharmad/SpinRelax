@@ -5,8 +5,8 @@ import sys, os, argparse, time
 import numpy as np
 #from scipy.optimize import curve_fit
 from scipy.optimize import fmin_powell
-import transforms3d.quaternions as quat
-from   transforms3d_supplement import *
+import transforms3d.quaternions as qops
+import transforms3d_supplement as qs
 import plumedcolvario as pl
 import xvgio
 import dxio
@@ -71,14 +71,13 @@ def calculate_anisotropies( D, chunkD=[]):
         # Output format [ (iso, isoErr), (aniL, aniLErr), (rhomL,ehomLErr), ... ]
         return out
 
-def obtain_v_dqs(ndat, delta, q):
-    out=np.zeros((ndat,3))
-    for i in range(ndat):
-        j=i+delta
-        #Since everything is squared does quat_reduce matter? ...no, but do so anyway.
-        dq=quat_reduce(quat.qmult( quat.qinverse(q[i]), q[j]))
-        out[i]=dq[1:4]
-    return out
+def obtain_self_dq(q, delta):
+    """
+    Vectorise { q^{-1}(t) q(t+delta) } over the range of q.
+    Assumes that there are only two input dimensions q(N, 4) and returns dq(N-delta,4) with imaging to reduce rotations
+    """
+    #print q.shape, delta
+    return qs.vecnorm_NDarray( qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) ) )
 
 def average_LegendreP1quat(ndat, vq):
     out=0.0
@@ -86,9 +85,9 @@ def average_LegendreP1quat(ndat, vq):
         out+=LegendreP1_quat(vq[i])
     return out/ndat
 
-def average_anisotropic_tensor(ndat, vq, qframe=(1,0,0,0)):
+def average_anisotropic_tensor_old(vq, qframe=(1,0,0,0)):
+    ndat=vq.shape[0]
     out=np.zeros((3,3))
-    # Check if there is no rotation.
     if qops.nearly_equivalent(qframe,(1,0,0,0)):
         for i in range(ndat):
             out+=np.outer(vq[i],vq[i])
@@ -96,8 +95,19 @@ def average_anisotropic_tensor(ndat, vq, qframe=(1,0,0,0)):
         for i in range(ndat):
             vrot=qops.rotate_vector(vq[i],qframe)
             out+=np.outer(vrot,vrot)
-    out/=ndat
-    return out
+    return out/ndat
+
+def average_anisotropic_tensor(vq, qframe=(1,0,0,0)):
+    """
+    Given the list of N components of q_v in te shape of (N,3)
+    Calculates the average tensor < q_i q_j >, i,j={x,y,z}
+    """
+    ndat=vq.shape[0]
+    #print "= = Debug: vq shape", vq.shape
+    # Check if there is no rotation.
+    if not qops.nearly_equivalent(qframe,(1,0,0,0)):
+        vq=qs.rotate_vector_simd(vq, qframe)
+    return np.einsum('ij,ik->jk', vq, vq) / ndat
 
 def average_LegendreP1quat_chunk(ndat, vq, nchunk):
     nblock=int(ceil(1.0*ndat/nchunk))
@@ -108,7 +118,8 @@ def average_LegendreP1quat_chunk(ndat, vq, nchunk):
         out[i]=average_LegendreP1quat(jmax-jmin, vq[jmin:jmax])
     return out
 
-def average_anisotropic_tensor_chunk(ndat, vq, nchunk, qframe=(1,0,0,0)):
+def average_anisotropic_tensor_chunk(vq, nchunk, qframe=(1,0,0,0)):
+    ndat=vq.shape[0]
     nblock=int(ceil(1.0*ndat/nchunk))
     out=np.zeros((nchunk,3,3))
     for i in range(nchunk):
@@ -517,43 +528,43 @@ if __name__ == '__main__':
     bFirst=True
     bFirstSub=True
     # = = Main loop over frame intervals.
-    tot_int=(max_int-min_int)/skip_int+1
-    out_dtlist=np.zeros(tot_int)
-    out_isolist=np.zeros(tot_int)
-    out_aniso1list=np.zeros((3,tot_int))
-    out_aniso2list=np.zeros((3,tot_int))
-    out_qlist=np.zeros((tot_int,4))
-    out_moilist=np.zeros((tot_int,3,3))
+    nIntervals=(max_int-min_int)/skip_int+1
+    out_dtlist=np.zeros(nIntervals)
+    out_isolist=np.zeros(nIntervals)
+    out_aniso1list=np.zeros((3,nIntervals))
+    out_aniso2list=np.zeros((3,nIntervals))
+    out_qlist=np.zeros((nIntervals,4))
+    out_moilist=np.zeros((nIntervals,3,3))
     if bDoSubchunk:
-        chunk_isolist=np.zeros((num_chunk,tot_int))
-        #chunk_aniso1list=np.zeros((num_chunk,3,tot_int))
-        chunk_aniso2list=np.zeros((num_chunk,3,tot_int))
-        #chunk_qlist=np.zeros((num_chunk,tot_int,4))
-        #chunk_moilist=np.zeros((num_chunk,tot_int,3,3))
+        chunk_isolist=np.zeros((num_chunk,nIntervals))
+        #chunk_aniso1list=np.zeros((num_chunk,3,nIntervals))
+        chunk_aniso2list=np.zeros((num_chunk,3,nIntervals))
+        #chunk_qlist=np.zeros((num_chunk,nIntervals,4))
+        #chunk_moilist=np.zeros((num_chunk,nIntervals,3,3))
 
-    # Start at the same location: go throudgh each lag time delta_t and accumulat data.
+    # Start at the same location: go through each lag time delta_t and accumulat data.
     index=0
-    for delta in range(min_int,max_int+1,skip_int):
+    for index, delta in enumerate( range(min_int,max_int+1,skip_int) ):
         time_delta=delta*data_delta_t
 
         #Gather the individual samples of angular displacements.
         #Iterate through each chunk
         num_one=num_timepoints-delta
         num_nd=num_one*num_replicas
-        v_dq=np.zeros((num_nd,3))
+        v_dq=np.zeros((num_nd,3), dtype=data.dtype)
         for ch in range(num_replicas):
             chunk = np.delete(np.take(data, indices=ch, axis=0), 0, axis=1)
-            v_dq[num_one*ch:num_one*(ch+1)]=obtain_v_dqs( num_one, delta, chunk )
+            v_dq[num_one*ch:num_one*(ch+1)]=obtain_self_dq( chunk, delta )[...,1:4]
 
         #Isotropic diffusion, use theta_q
         iso_sum1=average_LegendreP1quat(num_nd, v_dq)
         #Anisotropic Diffusion. Need tensor of vq
-        moi=average_anisotropic_tensor(num_nd, v_dq)
+        moi=average_anisotropic_tensor(v_dq)
         if not qops.nearly_equivalent(q_frame,(1,0,0,0)):
-            moiR1=average_anisotropic_tensor(num_nd, v_dq, q_frame)
+            moiR1=average_anisotropic_tensor(v_dq, q_frame)
         else:
             moiR1=moi
-        print " = = %i of %i intervals summed." % ((delta-min_int)/skip_int+1, tot_int)
+        print " = = %i of %i intervals summed." % ((delta-min_int)/skip_int+1, nIntervals)
 
         #Append to overall list in next outer loop.
         out_dtlist[index]=time_delta
@@ -567,14 +578,14 @@ if __name__ == '__main__':
                 debug_orthogonality(moi_axes)
 
             #rotations to change REF frame into MoI frame
-            q_rot=quat_frame_transform_min(moi_axes)
+            q_rot=qs.quat_frame_transform_min(moi_axes)
             #Store first quaternion for subsequent data points
             if bFirst:
                 bFirst=False
                 q_frame=q_rot
                 # The answer will be the same as simply eigenvals in the matching frame,
-                # but we'll calcualte it again anyway as a debug.
-                moiR1=average_anisotropic_tensor(num_nd, v_dq, q_frame)
+                # but we'll calculate it again anyway as a debug.
+                moiR1=average_anisotropic_tensor(v_dq, q_frame)
                 print "= = Begin Debug."
                 print "= = = PAF Axes in REF frame:"
                 print moi_axes[0], moi_axes[1], moi_axes[2]
@@ -602,9 +613,9 @@ if __name__ == '__main__':
             #temp=average_anisotropic_tensor_chunk(num_nd, v_dq, num_chunk)
             #chunk_aniso1list[:,:,index]=[ temp[i][0,0], temp[i][1,1], temp[i][0,0]
             if not qops.nearly_equivalent(q_frame,(1,0,0,0)):
-                temp2=average_anisotropic_tensor_chunk(num_nd, v_dq, num_chunk, q_frame)
+                temp2=average_anisotropic_tensor_chunk(v_dq, num_chunk, q_frame)
             else:
-                temp2=average_anisotropic_tensor_chunk(num_nd, v_dq, num_chunk)
+                temp2=average_anisotropic_tensor_chunk(v_dq, num_chunk)
 
             chunk_aniso2list[:,:,index]=[ [1-2*temp2[i][0,0], 1-2*temp2[i][1,1], 1-2*temp2[i][2,2]]
                                           for i in range(num_chunk) ]
@@ -631,9 +642,10 @@ if __name__ == '__main__':
             elif out_file.endswith("dat"):
                 write_to_gnuplot_hist(out_file, hist, edges)
 
-        #End of main for-loop governing a single delta t, bump index for output array
-        index+=1
-    #End of main for-loop governing all delta t
+        #= = End of main for-loop governing a single delta t = =
+
+    #= = End of main for-loop governing all delta t = =
+
     #Transpose the anisotropics so that x/y/z are now first indices, and time second.
     #out_aniso1list=out_aniso1list.T
     #out_aniso2list=out_aniso2list.T
@@ -706,10 +718,6 @@ if __name__ == '__main__':
 
         #Print axis vectors
         print_axes_as_xyz(out_pref+"-moi.xyz", out_moilist)
-
-    if bDoTest:
-        print_list('test1.dat',test_list1)
-        print_list('test2.dat',test_list2)
 
     time_stop=time.clock()
     #Report time
