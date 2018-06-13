@@ -79,39 +79,41 @@ def obtain_XHvecs(traj, Hseltxt, Xseltxt):
     return  vecXH
 
 # 3 Sum_i,j <e_i * e_j >^2 - 1
-def S2_by_P2cosTheta(v):
+def S2_by_outerProduct(v):
     """
     Two
     """
     outer = np.mean([ np.outer(v[i],v[i]) for i in range(len(v))], axis=0)
     return 1.5*np.sum(outer**2.0)-0.5
 
-def calculate_S2_by_P2cosTheta(vecs, delta_t=-1, tau_memory=-1):
+def calculate_S2_by_outerProduct(vecs, delta_t=-1, tau_memory=-1):
     """
-    Calculates the general order parameter S2 by using the quantity 3*Sum_i,j <e_i * e_j >^2 - 1 , which is still P2( CosTheta )
-    Expects vecs to be of dimensions ( time, nResidues, 3 )
+    Calculates the general order parameter S2 by using the quantity 3*Sum_i,j <e_i * e_j >^2 - 1 , which is akin to P2( CosTheta )
+    Expects vecs to be of dimensions (time, 3) or ( time, nResidues, 3 )
 
-    Unlike Ct_by_Palmer, this simply dispenses with any delta_t calculations and directly collapses all dimensions by default.
-    Thus returns an 1D-S2 with no errors.
+    This directly collapses all dimensions in two steps:
+    - 1. calculate the outer product <v_i v_j >
+    - 2. calculate Sum <v_i v_j>^2
 
     When both delta_t and tau_memory are given, then returns average and SEM of the S2 samples of dimensions ( nResidues, 2 )
     """
     sh=vecs.shape
     nDim=sh[-1]
     if len(sh)==2:
-        nFrames=vec.shape[0]
+        nFrames=vecs.shape[0]
         if delta_t < 0 or tau_memory < 0:
             #Use no block-averaging
-            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ij,ij->', vecs, vecs ) ) ) / nFrames
-            return P2cosTheta
+            tmp = np.einsum( 'ij,ik->jk', vecs,vecs) / nFrames
+            return 1.5*np.einsum('ij,ij->',tmp,tmp)-0.5
         else:
             nFramesPerBlock = int( tau_memory / delta_t )
             nBlocks = int( nFrames / nFramesPerBlock )
             # Reshape while dumping extra frames
             vecs = vecs[:nBlocks*nFramesPerBlock].reshape( nBlocks, nFramesPerBlock, nDim )
-            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijk,ijk->i', vecs, vecs ) ) ) / nFramesPerBlock
-            S2  = np.mean( P2cosTheta )
-            dS2 = np.std( P2cosTheta ) / ( np.sqrt(nBlocks) - 1.0 )
+            tmp = np.einsum( 'ijk,ijl->ikl', vecs,vecs) / nFramesPerBlock
+            tmp = 1.5*np.einsum('ijk,ijk->i',tmp,tmp)-0.5
+            S2 = np.mean( tmp )
+            dS2 = np.std( tmp ) / ( np.sqrt(nBlocks) - 1.0 )
             return np.array( [S2,dS2])
     elif len(sh)==3:
         # = = = Expect dimensions (time, nResidues, 3)
@@ -119,20 +121,20 @@ def calculate_S2_by_P2cosTheta(vecs, delta_t=-1, tau_memory=-1):
         nResidues  = vecs.shape[1]
         if delta_t < 0 or tau_memory < 0:
             #Use no block-averaging
-            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijk,ijk->j', vecs, vecs ) ) ) / nFrames
-            return P2cosTheta
+            tmp = np.einsum( 'ijk,ijl->jkl', vecs,vecs) / nFrames
+            return 1.5*np.einsum('...ij,...ij->...',tmp,tmp)-0.5
         else:
-            #Use input time to determine block averaging.
             nFramesPerBlock = int( tau_memory / delta_t )
             nBlocks = int( nFrames / nFramesPerBlock )
             # Reshape while dumping extra frames
             vecs = vecs[:nBlocks*nFramesPerBlock].reshape( nBlocks, nFramesPerBlock, nResidues, nDim )
-            P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijkl,ijkl->ik', vecs, vecs ) ) ) / nFramesPerBlock
-            S2  = np.mean( P2cosTheta, axis=0 )
-            dS2 = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nBlocks) - 1.0 )
+            tmp = np.einsum( 'ijkl,ijkm->iklm', vecs,vecs) / nFramesPerBlock
+            tmp = 1.5*np.einsum('...ij,...ij->...',tmp,tmp)-0.5
+            S2  = np.mean( tmp, axis=0 )
+            dS2 = np.std ( tmp, axis=0 ) / ( np.sqrt(nBlocks) - 1.0 )
             return np.stack( (S2,dS2), axis=-1 )
     else:
-        print >> sys.stderr, "= = = ERROR in calculate_S2_by_P2cosTheta: unsupported number of dimensions! vecs.shape: ", sh
+        print >> sys.stderr, "= = = ERROR in calculate_S2_by_outerProduct: unsupported number of dimensions! vecs.shape: ", sh
         sys.exit(1)
 
 # iRED and wiRED implemented according to reading of
@@ -190,8 +192,9 @@ def calculate_S2_by_iRED(vecs, dt, tau):
 
 def calculate_Ct_Palmer(vecs):
     """
+    Definition: < P2( v(t).v(t+dt) )  >
     (Rewritten) This proc assumes vecs to be of square dimensions ( nReplicates, nFrames, nResidues, 3).
-    Operates a single einsum per delta-t timepoints to produce the P2(costheta) with dimensions ( nReplicates, nResidues )
+    Operates a single einsum per delta-t timepoints to produce the P2(v(t).v(t+dt)) with dimensions ( nReplicates, nResidues )
     then produces the statistics from there according to Palmer's theory that trajectory be divide into N-replcates with a fixed memory time.
     Output Ct and dCt should take dimensions ( nResidues, nDeltas )
     """
@@ -206,12 +209,20 @@ def calculate_Ct_Palmer(vecs):
     nReplicates=sh[0] ; nDeltas=sh[1]/2 ; nResidues=sh[2]
     Ct  = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
     dCt = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
+    bFirst=True
     for delta in range(1,1+nDeltas):
         nVals=sh[1]-delta
-        # = = Create < P2CosTheta > with dimensions (replicates, resid ) then average across replicates with SEM.
-        P2cosTheta = ( -0.5+1.5*np.square( np.einsum( 'ijkl,ijkl->ik', vecs[:,:-delta,...], vecs[:,delta:,...] ) ) )/nVals
-        Ct[delta-1]  = np.mean( P2cosTheta, axis=0 )
-        dCt[delta-1] = np.std( P2cosTheta, axis=0 ) / ( np.sqrt(nReplicates) - 1.0 )
+        # = = Create < vi.v'i > with dimensions (nRep, nFr, nRes, 3) -> (nRep, nFr, nRes) -> ( nRep, nRes ), then average across replicates with SEM.
+        tmp = -0.5 + 1.5 * np.square( np.einsum( 'ijkl,ijkl->ijk', vecs[:,:-delta,...] ,vecs[:,delta:,...] ) )
+        tmp  = np.einsum( 'ijk->ik', tmp ) / nVals
+        Ct[delta-1]  = np.mean( tmp,axis=0 )
+        dCt[delta-1] = np.std( tmp,axis=0 ) / ( np.sqrt(nReplicates) - 1.0 )
+        #if bFirst:
+        #    bFirst=False
+        #    print tmp.shape, P2.shape
+        #    print tmp[0,0,0], P2[0,0]
+        #Ct[delta-1]  = np.mean( tmp,axis=(0,1) )
+        #dCt[delta-1] = np.std( tmp,axis=(0,1) ) / ( np.sqrt(nReplicates*nVals) - 1.0 )
 
     #print "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1])
     # Return with dimensions ( nDeltas, nResidues ) by default.
@@ -540,10 +551,10 @@ if __name__ == '__main__':
     if bDoS2:
         if tau_memory != None:
             print "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps"
-            S2 = calculate_S2_by_P2cosTheta(vecXHfit, deltaT, tau_memory)
+            S2 = calculate_S2_by_outerProduct(vecXHfit, deltaT, tau_memory)
         else:
             print "= = = Conducting S2 analysis directly from trajectories."
-            S2 = calculate_S2_by_P2cosTheta(vecXHfit)
+            S2 = calculate_S2_by_outerProduct(vecXHfit)
 
         gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
         print "      ...complete."
