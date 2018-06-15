@@ -47,6 +47,19 @@ def simple_total_mean_square(means, sigmas):
     ESS = np.sum( [ sigmas[i]**2.0 for i in range(copies) ] )
     return (GSS+ESS)/copies
 
+def weighted_average_stdev(values, weights, axis=-1):
+    """
+    Computes the weighted average and stdev when values are weighted.
+    values  in N   dimensions
+    weights in N-1 dimensions
+    """
+    #print type(values), values.shape
+    #print type(weights), weights.shape
+    avg   = np.average(values, axis=axis, weights=weights)
+    stdev = np.sqrt( np.average( (values-avg)**2.0, axis=axis, weights=weights) )
+    return avg, stdev
+
+
 def _perturb_tuple(t,mod,axis):
     l = list(t)
     l[axis]+=mod

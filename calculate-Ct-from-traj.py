@@ -199,7 +199,9 @@ def calculate_Ct_Palmer(vecs):
     Output Ct and dCt should take dimensions ( nResidues, nDeltas )
     """
     sh = vecs.shape
-    print "= = = Debug of calculate_Ct_Palmer confirming the dimenions of vecs:", sh
+    print "= = = Debug of calculate_Ct_Palmer confirming the dimensions of vecs:", sh
+    if sh[1]<50:
+        print >> sys.stderr,"= = = WARNING: there are less than 50 frames per block of memory-time!"
 
     if len(sh)!=4:
         # Not in the right form...
@@ -318,7 +320,7 @@ if __name__ == '__main__':
                              'in C(t)-calculations, but otherwise aggregated.' )
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
-    parser.add_argument('-t','--tau', type=float, dest='tau', default=None,
+    parser.add_argument('-t','--tau', type=float, dest='tau', required=True, default=None,
                         help='An estimate of the global tumbling time that is used to ignore internal motions'
                              'on timescales larger than can be measured by NMR relaxation. Same time units as trajectory, usually ps.')
     parser.add_argument('--prefact', type=float, dest='zeta', default=(1.02/1.04)**6,
@@ -335,6 +337,9 @@ if __name__ == '__main__':
                          help='Change the vector storage format to numpy binary to save a bit of space and read speed for large files.')
     parser.add_argument('--vecHist', dest='bDoVecHist', action='store_true', default=False,
                          help='Print the 2D-histogram rather than just the collection of vecs.')
+    parser.add_argument('--histBin', type=int, default=72,
+                         help='Resolution of the spherical histogram as the number of bins along phi (-pi,pi), by default covering 5-degrees.'
+                              'The number of bins along theta (0,pi) is automatically half this number.')
     parser.add_argument('--vecAvg', dest='bDoVecAverage', action='store_true', default=False,
                          help='Print the average unit XH-vector.')
     parser.add_argument('--vecRot', dest='vecRotQ', type=str, default='',
@@ -360,10 +365,12 @@ if __name__ == '__main__':
     bDoS2=args.bDoS2
     bDoCt=args.bDoCt
     if bDoCt and tau_memory == None:
-        print >> sys.stderr, "= = = Refusing to fo C(t)-analysis without using a block averaging over memory_time tau!"
+        print >> sys.stderr, "= = = Refusing to do C(t)-analysis without using a block averaging over memory_time tau!"
         sys.exit(1)
     bDoVecDistrib=args.bDoVecDistrib
     bDoVecHist=args.bDoVecHist
+    histBinX=args.histBin
+    histBinY=histBinX/2
     bBinary=args.binary
     if bDoVecHist and not bDoVecDistrib:
         bDoVecDistrib=True
@@ -434,6 +441,10 @@ if __name__ == '__main__':
 
         del trj
 
+        if deltaT > 0.5*tau_memory:
+            print >> sys.stderr, "= = = ERROR: delta-t form the trajectory is too small relative to tau! %g vs. %g" % (deltaT, tau_memory)
+            sys.exit(1)
+
         # = = Update overall variables
         if bFirst:
             resXH = resXH_loc
@@ -473,6 +484,7 @@ if __name__ == '__main__':
         print "= = = Conducting Ct_internal using Palmer's approach."
         Ct, dCt = calculate_Ct_Palmer(vecXHfit)
         gs.print_sxylist(out_pref+'_Ctint.dat', resXH, dt, np.stack( (Ct.T,dCt.T), axis=-1) )
+        del Ct, dCt
 
     # Compress 4D down to 3D for the rest of the calculations to simplify matters.
     sh = vecXHfit.shape
@@ -483,12 +495,12 @@ if __name__ == '__main__':
 
     if bRotVec:
         print "= = = Rotating all fitted vectors by the input quaternion into PAF."
-        #try:
-        #    vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
-        #except MemoryError:
-        #    print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Doing this the slower way."
-        for i in range(sh[0]*sh[1]):
-            vecXHfit[i] = qs.rotate_vector_simd(vecXHfit[i], q_rot)
+        try:
+            vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
+        except MemoryError:
+            print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Doing this the slower way."
+            for i in range(sh[0]*sh[1]):
+                vecXHfit[i] = qs.rotate_vector_simd(vecXHfit[i], q_rot)
 
     if bDoVecAverage:
         # Note: gs-script normalises along the last axis, after this mean operation
@@ -515,9 +527,10 @@ if __name__ == '__main__':
         print "= = = Debug: shape of the spherical vector distribution:", rtp.shape
         if not bDoVecHist:
             if bBinary:
-                np.savez_compressed(out_pref+'_PhiTheta.npz', names=resXH, dataType='PhiTheta', bHistogram=False, data=rtp[...,1:3])
+                np.savez_compressed(out_pref+'_vecPhiTheta.npz', names=resXH, \
+                        dataType='PhiTheta', axisLabels=['phi','theta'], bHistogram=False, data=rtp[...,1:3])
             else:
-                gs.print_s3d(out_pref+'_PhiTheta.dat', resXH, rtp, (1,2))
+                gs.print_s3d(out_pref+'_vecPhiTheta.dat', resXH, rtp, (1,2))
         else:
             # = = = Conduct histograms on the dimension of phi, cos(theta). The Lambert Cylindrical projection preserves sample area, and therefore preserves the bin occupancy rates.
             # = = = ...this leads to relative bin occupancies that make more sense when plotted directly.
@@ -525,22 +538,22 @@ if __name__ == '__main__':
             print "= = = Histgrams will use Lambert Cylindrical projection by converting Theta spanning (0,pi) to cos(Theta) spanning (-1,1)"
             rtp[...,1]=np.cos(rtp[...,1])
 
-            hist_list=np.zeros((nBonds,72,36), dtype=rtp.dtype)
+            hist_list=np.zeros((nBonds,histBinX,histBinY), dtype=rtp.dtype)
             bFirst=True
             for i in range(nBonds):
-                #hist, edges = np.histogramdd(rtp[i],bins=(72,36),range=((-np.pi,np.pi),(0,np.pi)),normed=True)
-                hist, edges = np.histogramdd(rtp[i],bins=(72,36),range=((-np.pi,np.pi),(-1,1)),normed=True)
+                hist, edges = np.histogramdd(rtp[i],bins=(histBinX,histBinY),range=((-np.pi,np.pi),(-1,1)),normed=False)
                 if bFirst:
                     bFirst=False
                     edgesAll = edges
-                else:
-                    if np.any(edgesAll!=edges):
-                        print >> sys.stderr, "= = = ERROR: histogram borders are not equal. This should never happen!"
-                        sys.exit(1)
+                #else:
+                #    if np.any(edgesAll!=edges):
+                #        print >> sys.stderr, "= = = ERROR: histogram borders are not equal. This should never happen!"
+                #        sys.exit(1)
                 hist_list[i]=hist
 
             if bBinary:
-                np.savez_compressed(out_pref+'_vecXH_histogram.npz', names=resXH, dataType='LambertCylindrical', bHistogram=True, edges=edgesAll, data=hist_list)
+                np.savez_compressed(out_pref+'_vecHistogram.npz', names=resXH, \
+                        dataType='LambertCylindrical', bHistogram=True, edges=edgesAll, axisLabels=['phi','cos(theta)'], data=hist_list)
             else:
                 for i in range(nBonds):
                     ofile=out_pref+'_vecXH_'+str(resXH[i])+'.hist'

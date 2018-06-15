@@ -135,7 +135,7 @@ def average_anisotropic_tensor_chunk(vq, nchunk, qframe=(1,0,0,0)):
     for i in range(nchunk):
         jmin=nblock*i
         jmax=min(ndat, nblock*(i+1))
-        out[i]=average_anisotropic_tensor(jmax-jmin, vq[jmin:jmax], qframe)
+        out[i]=average_anisotropic_tensor(vq[jmin:jmax], qframe)
     return out
 
 def isotropic_decay(x, a):

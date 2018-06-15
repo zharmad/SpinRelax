@@ -77,6 +77,7 @@ qfile=colvar-qorient
 pfile_template=$script_loc/plumed-quat-template.dat
 pfile=plumed-quat.dat
 refpdb=reference.pdb
+vecStorage=Histogram
 expfn=""
 tpr=topol.tpr
 # Decide on memory time to use for reorientation time.
@@ -126,6 +127,7 @@ NB:
   -qfile <filename> : Specify custom filename/location for quaternions. (Default: $qfile)
   -pfile <filename> : Specify custom filename/location for PLUMED quaternion script. (Default: $pfile)
   -refpdb <filename> : Specify custom filename/location for reference coordinate used by PLUMED and Python-MDTraj. (Default: $refpdb)
+  -vecstorage <string> : Specify how the vector distributions is stored for anisotropic relaxation calculations Histogram|PhiTheta|TextPhiTheta (Default: $vecStorage)
   -expfile <filename> : Specify custom filename/location for experimental R1/R2/NOE. (Default: $expfn)
   -sxtc <filename> : Specify custom filename/location for simulation trajectory used by PLUMED. (Default: $sxtc)
   -xtc_step <N ps> : Explicitly give the time period between successive frames. Otherwise GROMACS will be used to attempt to determine this.
@@ -396,29 +398,39 @@ if [[ "$sxtc_list" == "" ]] ; then
     sxtc_list=$sxtc_loc
 fi
 
+case $vecStorage in
+    Histogram)
+        vecDistFile=${outpref}_vecHistogram.npz
+        vecDistArgs="--vecHist --binary"
+        ;;
+    PhiTheta)
+        vecDistFile=${outpref}_vecPhiTheta.npz
+        vecDistArgs="--vecDist --binary"
+        ;;
+    TextPhiTheta)
+        vecDistFile=${outpref}_vecPhiTheta.dat
+        vecDistArgs="--vecDist"
+        ;;
+    *)
+        echo "= = = ERROR: Argument for vector storage not understood! $vecStorage is not Histogram | PhiTheta | TextPhiTheta"
+        exit 1
+esac
+
 [[ "$bMultiRef" == "True" ]] && refpdb_loc=$refpdb_list || refpdb_loc=$refpdb
-echo "= = (Part 1): Obtaining XH-vector distribution in PAF frame in polar coordinates (PhiTheta)..."
-if [ ! -e ${outpref}_PhiTheta.npz ] ; then
+# echo "= = (Part 1): Obtaining XH-vector distribution in PAF frame in polar coordinates (PhiTheta)..."
+echo "= = (Part 1 and 2): Obtaining XH-vector distribution in PAF frame and binning them as histograms..."
+echo "= = (Part 1 and 2): Obtaining XH-vector auto-correlation in both global and local frame (Ctint)... "
+if [ ! -e $vecDistFile ] || [ ! -e ${outpref}_Ctint.dat ] ; then
     $pycmd \
         $script_loc/calculate-Ct-from-traj.py \
         -s $refpdb_loc -f $sxtc_list \
         --tau $tau_ps -o ${outpref} \
         --vecRot "$quat" $fittxtstr \
-        --vecDist --binary --vecAvg --S2
+        $vecDistArgs --vecAvg --S2 --Ct
 else
-    echo " = = = Note: Pre-existing binary PhiTheta.npz file found, skipping derivations."
+    echo " = = = Note: Pre-existing files for both vector distribution and internal motions have been found, skipping derivations."
 fi
-echo "= = (Part 2): Obtaining XH-vector auto-correlation in both global and local frame (Ctint)..."
-if [ ! -e ${outpref}_Ctint.dat ] ; then
-    $pycmd \
-        $script_loc/calculate-Ct-from-traj.py \
-        -s $refpdb_loc -f $sxtc_list \
-        --tau $tau_ps -o ${outpref} \
-        --vecRot "$quat" $fittxtstr \
-        --Ct
-else
-    echo " = = = Note: Pre-existing internal motion file found, skipping derivations."
-fi
+
 echo "= = (Part 3): Fitting the auto-correlations in the local frame (fittedCt)..."
 if [ ! -e ${outpref}_fittedCt.dat ] ; then
     $pycmd \
@@ -437,7 +449,7 @@ for Bfield in $Bfields ; do
         $pycmd $script_loc/calculate-relaxations-from-Ct.py \
             -f ${outpref}_fittedCt.dat \
             -o ${outpref}-$of \
-            --distfn ${outpref}_PhiTheta.npz \
+            --distfn $vecDistFile \
             -F ${Bfield}e6 \
             --tu ps $zetaStr \
             --D "$Diso $Dani"

@@ -36,82 +36,110 @@ def sanity_check_two_list(listA, listB, string, bVerbose=False):
         if bVerbose:
             print listA
             print listB
+        else:
+            print "    ...first residues:", listA[0], listB[0]
+            print "    ...set intersection (unordered):", set(listA).intersection(set(listB))
         sys.exit(1)
     return
 
-def _obtain_Jomega(RObj, nvecs, S2, consts, taus, vecXH):
-    if RObj.rotdif_model.name == 'rigid_sphere':
-        datablock=np.zeros((5,nvecs))
-        for i in range(nvecs):
-            J = sd.J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdif_model.D), S2[i], consts[i], taus[i])
+def _obtain_Jomega(RObj, nSites, S2, consts, taus, vecXH, weights=None):
+    """
+    The inputs vectors have dimensions (nSites, nSamples, 3) or just (nSites, 3)
+    the datablock being returned has dimensions:
+    - (nFrequencies, nSites)    of there is no uncertainty calculations. 5 being the five frequencies J(0), J(wN) J(wH+wN), J(wH), J(wH-wN)
+    - (nFrequencies, nSites, 2) if there is uncertainty calculations.
+    """
+    nFrequencies= len(RObj.omega)
+    if RObj.rotdifModel.name == 'rigid_sphere':
+        datablock=np.zeros((5,nSites), dtype=np.float32)
+        for i in range(nSites):
+            J = sd.J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
             datablock[:,i]=J
         return datablock
-    elif RObj.rotdif_model.name == 'rigid_symmtop':
+    elif RObj.rotdifModel.name == 'rigid_symmtop':
         # Automatically use the vector-form of function.
         if len(vecXH.shape) > 2:
-            # An ensemble of vector for each dipole.
-            datablock=np.zeros((5,nvecs,2))
+            # An ensemble of vectors at each site. Measure values for all of them then average with/without weights.
+            datablock=np.zeros( (nFrequencies, nSites, 2), dtype=np.float32)
             npts=vecXH.shape[1]
-            tmpJ = np.zeros( (5, npts) )
-            for i in range(nvecs):
-                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdif_model.D[0], RObj.rotdif_model.D[1], S2[i], consts[i], taus[i])
-                datablock[:,i,0] = np.mean(Jmat, axis=0)
-                datablock[:,i,1] = np.std(Jmat, axis=0)
+            for i in range(nSites):
+                # = = = Calculate at each residue and sum over Jmat( nSamples, 2)
+                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdifModel.D[0], RObj.rotdifModel.D[1], S2[i], consts[i], taus[i])
+                if weights is None:
+                    datablock[:,i,0] = np.mean(Jmat, axis=0)
+                    datablock[:,i,1] = np.std(Jmat, axis=0)
+                else:
+                    datablock[:,i,0] = np.average(Jmat, axis=0, weights=weights[i])
+                    datablock[:,i,1] = np.sqrt( np.average( (Jmat - datablock[:,i,0])**2.0, axis=0, weights=weights[i]) )
             return datablock
         else:
-            #Single XH vector for each dipole.
-            datablock=np.zeros((5,nvecs))
-            for i in range(nvecs):
-                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdif_model.D[0], RObj.rotdif_model.D[1], S2[i], consts[i], taus[i])
+            #Single XH vector at each site. Ignore weights, as they should not exist.
+            datablock=np.zeros((5,nSites), dtype=np.float32)
+            for i in range(nSites):
+                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdifModel.D[0], RObj.rotdifModel.D[1], S2[i], consts[i], taus[i])
                 datablock[:,i]=Jmat
             return datablock
 
     # = = Should only happen with fully anisotropic models.
-    print >> sys.stderr, "= = ERROR: Unknown rotdif_model in the relaxation object used in calculations!"
+    print >> sys.stderr, "= = ERROR: Unknown rotdifModel in the relaxation object used in calculations!"
     return []
 
 
-def _obtain_R1R2NOErho(RObj, nvecs, S2, consts, taus, vecXH):
-    if RObj.rotdif_model.name == 'direct_transform':
-        datablock=np.zeros((4,nvecs))
-        for i in range(nvecs):
+def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None):
+    """
+    The inputs vectors have dimensions (nSites, nSamples, 3) or just (nSites, 3)
+    the datablock being returned has dimensions:
+    - ( 4, nSites)    of there is no uncertainty calculations. 4 corresponding each to R1, R2, NOE, and rho.
+    - ( 4, nSites, 2) if there is uncertainty calculations.
+    """
+    if RObj.rotdifModel.name == 'direct_transform':
+        datablock=np.zeros((4,nSites), dtype=np.float32)
+        for i in range(nSites):
             J = sd.J_direct_transform(RObj.omega, consts[i], taus[i])
             R1, R2, NOE = RObj.get_relax_from_J( J )
             rho = RObj.get_rho_from_J( J )
             datablock[:,i]=[R1,R2,NOE,rho]
         return datablock
-    elif RObj.rotdif_model.name == 'rigid_sphere':
-        datablock=np.zeros((4,nvecs))
-        for i in range(nvecs):
-            J = sd.J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdif_model.D), S2[i], consts[i], taus[i])
+    elif RObj.rotdifModel.name == 'rigid_sphere':
+        datablock=np.zeros((4,nSites), dtype=np.float32)
+        for i in range(nSites):
+            J = sd.J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
             R1, R2, NOE = RObj.get_relax_from_J( J )
             rho = RObj.get_rho_from_J( J )
             datablock[:,i]=[R1,R2,NOE,rho]
         return datablock
-    elif RObj.rotdif_model.name == 'rigid_symmtop':
+    elif RObj.rotdifModel.name == 'rigid_symmtop':
         # Automatically use the vector-form of function.
         if len(vecXH.shape) > 2:
-            # An ensemble of vector for each dipole.
-            datablock=np.zeros((4,nvecs,2))
+            # An ensemble of vectors for each site.
+            datablock=np.zeros((4,nSites,2), dtype=np.float32)
             npts=vecXH.shape[1]
-            tmpR1  = np.zeros(npts) ; tmpR2 = np.zeros(npts) ; tmpNOE = np.zeros(npts)
-            tmprho = np.zeros(npts)
-            for i in range(nvecs):
-                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdif_model.D[0], RObj.rotdif_model.D[1], S2[i], consts[i], taus[i])
-                # = = = Calculate values from the entire sample of vectors
-                for j in range(npts):
-                    tmpR1[j], tmpR2[j], tmpNOE[j] = RObj.get_relax_from_J( Jmat[j] )
-                    tmprho[j] = RObj.get_rho_from_J( Jmat[j] )
-                R1 = np.mean(tmpR1)  ; R2 = np.mean(tmpR2)   ; NOE = np.mean(tmpNOE)
-                R1sig = np.std(tmpR1); R2sig = np.std(tmpR2) ; NOEsig = np.std(tmpNOE)
-                rho = np.mean(tmprho); rhosig = np.std(tmprho)
-                datablock[:,i]=[[R1,R1sig],[R2,R2sig],[NOE,NOEsig],[rho,rhosig]]
+            #tmpR1  = np.zeros(npts) ; tmpR2 = np.zeros(npts) ; tmpNOE = np.zeros(npts)
+            #tmprho = np.zeros(npts)
+            for i in range(nSites):
+                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdifModel.D[0], RObj.rotdifModel.D[1], S2[i], consts[i], taus[i])
+                # = = = Calculate relaxation values from the entire sample of vectors before any averagins is to be done
+                tmpR1, tmpR2, tmpNOE = RObj.get_relax_from_J_simd( Jmat )
+                tmprho = RObj.get_rho_from_J_simd( Jmat )
+                #for j in range(npts):
+                #    tmpR1[j], tmpR2[j], tmpNOE[j] = RObj.get_relax_from_J( Jmat[j] )
+                #    tmprho[j] = RObj.get_rho_from_J( Jmat[j] )
+                if weights is None:
+                    R1 = np.mean(tmpR1)  ; R2 = np.mean(tmpR2)   ; NOE = np.mean(tmpNOE)
+                    R1sig = np.std(tmpR1); R2sig = np.std(tmpR2) ; NOEsig = np.std(tmpNOE)
+                    rho = np.mean(tmprho); rhosig = np.std(tmprho)
+                    datablock[:,i]=[[R1,R1sig],[R2,R2sig],[NOE,NOEsig],[rho,rhosig]]
+                else:
+                    datablock[0,i]=gm.weighted_average_stdev(tmpR1, weights[i])
+                    datablock[1,i]=gm.weighted_average_stdev(tmpR2, weights[i])
+                    datablock[2,i]=gm.weighted_average_stdev(tmpNOE, weights[i])
+                    datablock[3,i]=gm.weighted_average_stdev(tmprho, weights[i])
             return datablock
         else:
-            #Single XH vector for each dipole.
-            datablock=np.zeros((4,nvecs))
-            for i in range(nvecs):
-                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdif_model.D[0], RObj.rotdif_model.D[1], S2[i], consts[i], taus[i])
+            #Single XH vector for each site.
+            datablock=np.zeros((4,nSites), dtype=np.float32)
+            for i in range(nSites):
+                Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdifModel.D[0], RObj.rotdifModel.D[1], S2[i], consts[i], taus[i])
                 if len(Jmat.shape) == 1:
                     # A single vector was given.
                     R1, R2, NOE = RObj.get_relax_from_J( Jmat )
@@ -120,7 +148,7 @@ def _obtain_R1R2NOErho(RObj, nvecs, S2, consts, taus, vecXH):
             return datablock
 
     # = = Should only happen with fully anisotropic models.
-    print >> sys.stderr, "= = ERROR: Unknown rotdif_model in the relaxation object used in calculations!"
+    print >> sys.stderr, "= = ERROR: Unknown rotdifModel in the relaxation object used in calculations!"
     return []
 
 def optfunc_R1R2NOE_inner(datablock, expblock):
@@ -144,13 +172,13 @@ def optfunc_R1R2NOE_DisoS2CSA(params, *args):
     Diso=params[0] ; S2s=params[1] ; csa=params[2]
     robj=args[0]
     nvecs=args[1] ; S2=args[2] ; consts=args[3] ; taus=args[4]
-    vecxh=args[5]
-    expblock=args[6]
-    robj.rotdif_model.change_Diso( Diso )
+    vecxh=args[5] ; w=args[6]
+    expblock=args[-1]
+    robj.rotdifModel.change_Diso( Diso )
     S2loc  = [ S2s*k for k in S2 ]
     consts_loc = [ [ S2s*k for k in j] for j in consts ]
     robj.gX.csa=csa
-    datablock = _obtain_R1R2NOErho( robj, nvecs, S2, consts, taus, vecxh )
+    datablock = _obtain_R1R2NOErho( robj, nvecs, S2, consts, taus, vecxh , weights=w)
     chisq = optfunc_R1R2NOE_inner(datablock[0:3,...], expblock)
     print "= = optimisations params( %s ) returns chi^2 %g" % (params, chisq)
     return chisq
@@ -160,11 +188,11 @@ def optfunc_R1R2NOE_DisoCSA(params, *args):
     Diso=params[0] ; csa = params[1]
     robj=args[0]
     nvecs=args[1] ; S2=args[2] ; consts=args[3] ; taus=args[4]
-    vecxh=args[5]
-    expblock=args[6]
-    robj.rotdif_model.change_Diso( Diso )
+    vecxh=args[5] ; w=args[6]
+    expblock=args[-1]
+    robj.rotdifModel.change_Diso( Diso )
     robj.gX.csa=csa
-    datablock = _obtain_R1R2NOErho( robj, nvecs, S2, consts, taus, vecxh)
+    datablock = _obtain_R1R2NOErho( robj, nvecs, S2, consts, taus, vecxh, weights=w)
     chisq = optfunc_R1R2NOE_inner(datablock[0:3,...], expblock)
     print "= = optimisations params( %s ) returns chi^2 %g" % (params, chisq)
     return chisq
@@ -174,13 +202,13 @@ def optfunc_R1R2NOE_DisoS2(params, *args):
     Diso=params[0] ; S2s=params[1]
     robj=args[0]
     nvecs=args[1] ; S2=args[2] ; consts=args[3] ; taus=args[4]
-    vecxh=args[5]
-    expblock=args[6]
-    robj.rotdif_model.change_Diso( Diso )
+    vecxh=args[5] ; w=args[6]
+    expblock=args[-1]
+    robj.rotdifModel.change_Diso( Diso )
     S2loc  = [ S2s*k for k in S2 ]
     consts_loc = [ [ S2s*k for k in j] for j in consts ]
     #print "...Scaling:", consts[0][0], consts_loc[0][0]
-    datablock = _obtain_R1R2NOErho( robj, nvecs, S2loc, consts_loc, taus, vecxh)
+    datablock = _obtain_R1R2NOErho( robj, nvecs, S2loc, consts_loc, taus, vecxh, weights=w)
     chisq = optfunc_R1R2NOE_inner(datablock[0:3,...], expblock)
     print "= = optimisations params( %s ) returns chi^2 %g" % (params, chisq)
     return chisq
@@ -190,10 +218,10 @@ def optfunc_R1R2NOE_Diso(params, *args):
     Diso=params[0]
     RObj=args[0]
     nvecs=args[1] ; S2=args[2] ; consts=args[3] ; taus=args[4]
-    vecXH=args[5]
-    expblock=args[6]
-    RObj.rotdif_model.change_Diso( Diso )
-    datablock = _obtain_R1R2NOErho( RObj, nvecs, S2, consts, taus, vecXH)
+    vecXH=args[5] ; w=args[6]
+    expblock=args[-1]
+    RObj.rotdifModel.change_Diso( Diso )
+    datablock = _obtain_R1R2NOErho( RObj, nvecs, S2, consts, taus, vecXH, weights=w)
     chisq = optfunc_R1R2NOE_inner(datablock[0:3,...], expblock)
     print "= = Optimisations params( %s ) returns Chi^2 %g" % (params, chisq)
     return chisq
@@ -201,7 +229,7 @@ def optfunc_R1R2NOE_Diso(params, *args):
 def do_global_scan_Diso( D_init, step, smin, smax, args):
     print "= = Conduct inital global scan of D_iso. "
     power=np.arange(smin, smax) ; nval = len(power)
-    Dloc=np.zeros( nval ) ; chisq=np.zeros( nval )
+    Dloc=np.zeros( nval, dtype=np.float32 ) ; chisq=np.zeros( nval, dtype=np.float32)
     for i in range(nval) :
         Dloc[i] = D_init*np.power( step, power[i] )
         chisq[i] = optfunc_R1R2NOE_Diso( [ Dloc[i] ] , *args )
@@ -314,6 +342,69 @@ def parse_parameters(names, values):
 #            resid=float(l[0])
 #            data=[ float(i) for i in l[1:] ]
 
+def convert_LambertCylindricalHist_to_vecs(hist, edges):
+    print "= = = Reading histogram in Lambert-Cylindral projection, and returning distribution of non-zero vectors."
+    # = = = Expect histograms as a list of 2D entries: (nResidues, phi, cosTheta)
+    nResidues   = hist.shape[0]
+    phis   = 0.5*(edges[0][:-1]+edges[0][1:])
+    thetas = np.arccos( 0.5*(edges[1][:-1]+edges[1][1:]) )
+    pt = np.moveaxis( np.array( np.meshgrid( phis, thetas, indexing='ij') ), 0, -1)
+    binVecs = gm.rtp_to_xyz( pt, vaxis=-1, bUnit=True )
+    del pt, phis, thetas
+    print "    ...shapes of first histogram and average-vector array:", hist[0].shape, binVecs.shape
+    nPoints = hist[0].shape[0]*hist[0].shape[1]
+    # = = = just in case this is a list of histograms..
+    # = = = Keep all of the zero-weight entries vecause it keeps the broadcasting speed.
+    #vecs    = np.zeros( (nResidues, nPoints, 3 ), dtpye=binVecs.dtype )
+    #weights = np.zeros_like( vecs )
+    return np.repeat( binVecs.reshape(nPoints,3)[np.newaxis,...], nResidues, axis=0), \
+           np.reshape( hist, ( nResidues, nPoints) )
+    #vecs = [] ; weights = []
+    #bFirst=True
+    #for res in range(nResidues):
+    #    mapp = np.where( hist[res] > 0 )
+    #    nVals = len(mapp[0])
+    #    tmpW = [ hist[res][i,j] for i,j in zip(mapp[0],mapp[1])   ]
+    #    tmpV = [ averageVecs[i,j] for i,j in zip(mapp[0],mapp[1]) ]
+    #    vecs.append(tmpV)
+    #    weights.append(tmpW)
+    #    if bFirst:
+    #        bFirst=False
+    #        print "    ...weight sum: ", np.sum(tmpW)
+    # return vecs, weights
+
+def read_vector_distribution_from_file( fileName ):
+    """
+    Returns the vectors, and mayber weights whose dimensions are (nResidue, nSamples, 3).
+    Currently supports only phi-theta formats of vector definitions.
+    For straight xmgrace data files, this corresponds to the number of plots, then the data-points in each plot.
+    """
+    weights = None
+    if fileName.endswith('.npz'):
+        # = = = Treat as a numpy binary file.
+        obj = np.load(fileName)
+        # = = = Determine data type
+        resIDs = obj['names']
+        if obj['bHistogram']:
+            if obj['dataType'] != 'LambertCylindrical':
+                print >> sys.stderr, "= = = Histogram projection not supported! %s" % obj['dataType']
+                sys.exit(1)
+            vecs, weights = convert_LambertCylindricalHist_to_vecs(obj['data'], obj['edges'])
+        else:
+            if obj['dataType'] != 'PhiTheta':
+                print >> sys.stderr, "= = = Numpy binary datatype not supported! %s" % obj['dataType']
+                sys.exit(1)
+            # = = = Pass phi and theta directly to rtp_to_xyz
+            vecs = gm.rtp_to_xyz( obj['data'], vaxis=-1, bUnit=True )
+    else:
+        resIDs, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
+        vecs = gm.rtp_to_xyz( np.stack( (dist_phis,dist_thetas), axis=-1), vaxis=-1, bUnit=True )
+    if not weights is None:
+        print "    ...converted input phi_theta data to vecXH / weights, whose shapes are:", vecs.shape, weights.shape
+    else:
+        print "    ...converted input phi_theta data to vecXH, whose shape is:", vecs.shape
+    return resIDs, vecs, weights
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Read fitted-Ct values and calculation of relaxation parameters'
@@ -330,6 +421,8 @@ if __name__ == '__main__':
     parser.add_argument('--distfn', type=str, dest='distfn', default='none',
                         help='Vector orientation distribution of the X-H dipole, in a spherical-polar coordinates.'
                              'Without an accompanying quaternion, this is assumed to be in the principal axes frame.')
+    parser.add_argument('--shiftres', type=int, default=0,
+                        help='Shift the MD residue indices, e.g., to match the experiment.')
     parser.add_argument('-e','--expfn', type=str, dest='expfn', default='none',
                         help='Experimental values of R1, R2, and NOE in a 4- or 7-column format.'
                              '4-column data is assumed to be ResID/R1/R2/NOE. 7-column data is assumed to also have errors.'
@@ -395,7 +488,7 @@ if __name__ == '__main__':
         print " = = Applying scaling to add zero-point QM vibrations (zeta) of %g" % zeta
     # Set up relaxation parameters.
     nuclei_pair  = args.nuclei
-    time_unit = args.time_unit
+    timeUnit = args.time_unit
     if args.Hz != -1:
         B0 = 2.0*np.pi*args.Hz / 267.513e6
     elif args.B0 != -1:
@@ -404,8 +497,8 @@ if __name__ == '__main__':
         print >> sys.stderr, "= = = ERROR: Must give either the background magnetic field or the frequency! E.g., -B0 14.0956"
         sys.exit(1)
 
-    relax_obj = sd.relaxObject(nuclei_pair, B0)
-    relax_obj.set_time_unit(time_unit)
+    relax_obj = sd.relaxationModel(nuclei_pair, B0)
+    relax_obj.set_time_unit(timeUnit)
     relax_obj.set_freq_relaxation()
     print "= = = Setting up magnetic field:", B0, "T"
     print "= = = Angular frequencies in ps^-1 based on given parameters:"
@@ -432,14 +525,14 @@ if __name__ == '__main__':
         exp_resid, expblock = gs.load_xys(args.expfn)
         nres = len(exp_resid)
         ny   = expblock.shape[1]
-        rho = np.zeros(nres)
+        rho = np.zeros(nres, dtype=np.float32)
         if ny == 6:
             expblock = expblock.reshape( (nres,3,2) )
         elif ny != 3:
             print >> sys.stderr, "= = = ERROR: The column format of the experimental relaxation file is not recognised!"
             sys.exit(1)
         if not bOptPars:
-            rho = np.zeros ( nres )
+            rho = np.zeros ( nres, dtype=np.float32)
             if ny==6:
                 for i in range(nres):
                     rho[i]=relax_obj.calculate_rho_from_relaxation(expblock[i,:,0])
@@ -490,19 +583,18 @@ if __name__ == '__main__':
             diff_type = 'anisotropic'
         tau_iso = 1.0/(6*Diso)
 
+    vecXH=None ; vecXHweights=None
     if diff_type=='direct':
         print "= = = No global rotational diffusion selected. Calculating the direct transform."
         relax_obj.set_rotdif_model('direct_transform')
-        vecXH=np.array([])
-    if diff_type=='spherical':
+    elif diff_type=='spherical':
         print "= = = Using a spherical rotational diffusion model."
         relax_obj.set_rotdif_model('rigid_sphere_D', Diso)
-        vecXH=np.array([])
-    if diff_type=='symmtop':
+    elif diff_type=='symmtop':
         Dperp = 3.*Diso/(2+aniso)
         Dpar  = aniso*Dperp
         print "= = = Calculated anisotropy to be: ", aniso
-        print "= = = With Dpar, Dperp: %g, %g %s^-1" % ( Dpar, Dperp, time_unit)
+        print "= = = With Dpar, Dperp: %g, %g %s^-1" % ( Dpar, Dperp, timeUnit)
         # This part is ignored for now..
         relax_obj.set_rotdif_model('rigid_symmtop_D', Dpar, Dperp)
         # Read quaternion
@@ -528,33 +620,10 @@ if __name__ == '__main__':
             bHaveVec = True
         elif args.distfn != 'none':
             print "= = = Using vector distribution in spherical coordinates. Reading X-H vector distribution from %s ..." % args.distfn
-            if args.distfn.endswith('.npz'):
-                # = = = Treat as a numpy binary file.
-                obj = np.load(args.distfn)
-                # = = = Determine dats type
-                resNH = obj['names']
-                if obj['bHistogram']:
-                    if obj['dataType'] != 'LambertCylindrical':
-                        print >> sys.stderr, "= = = Numpy binary datatype not supported! %s" % obj['dataType']
-                        sys.exit(1)
-                    print "= = = ERROR: Histogram input not yet supported!"
-                    sys.exit()
-                else:
-                    if obj['dataType'] != 'PhiTheta':
-                        print >> sys.stderr, "= = = Numpy binary datatype not supported! %s" % obj['dataType']
-                        sys.exit(1)
-                    dist_phis   = obj['data'][...,0]
-                    dist_thetas = obj['data'][...,1]
-                del obj
-            else:
-                resNH, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
-            resNH = [ float(x) for x in resNH ]
-            print "    ...read phi and theta, whose shapes are:", dist_phis.shape, dist_thetas.shape
-            print "    ...First (phi, theta) entry:", dist_phis[0,0], dist_thetas[0,0]
-            vecXH = gm.rtp_to_xyz( np.stack( (dist_phis,dist_thetas), axis=-1), vaxis=-1, bUnit=True )
-            print "    ...converted this to vecXH, whose shapes is:", vecXH.shape
-            # Remove phis and thetas as they will not be used anymore.
-            del dist_phis ; del dist_thetas
+            resNH, vecXH, vecXHweights = read_vector_distribution_from_file( args.distfn )
+
+            resNH = [ int(x)+args.shiftres for x in resNH ]
+
             if bQuatRot:
                 print "    ....rotating input vectors into PAF frame using q_rot."
                 vecXH = qs.rotate_vector_simd(vecXH, q_rot)
@@ -620,14 +689,14 @@ if __name__ == '__main__':
     # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
     param_names=("Diso", "zeta", "CSA", "chi")
     param_scaling=( 1.0, zeta, 1.0e6, 1.0 )
-    param_units=(relax_obj.time_unit, "a.u.", "ppm", "a.u." )
+    param_units=(relax_obj.timeUnit, "a.u.", "ppm", "a.u." )
     optHeader=''
     #relax_obj.rotdif_model.change_Diso( Diso )
     if not bOptPars:
         if bJomega:
-            datablock = _obtain_Jomega(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH)
+            datablock = _obtain_Jomega(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
         else:
-            datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH)
+            datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
 
         optHeader=print_fitting_params_headers(names=param_names,
                   values=np.multiply(param_scaling, (Diso, 1.0, relax_obj.gX.csa, 0.0)),
@@ -652,6 +721,10 @@ if __name__ == '__main__':
             fconsts_list = [ consts_list[x] for x in sim_ind ]
             ftaus_list   = [ taus_list[x] for x in sim_ind ]
             fvecXH       = vecXH.take(sim_ind, axis=0)
+            if not vecXHweights is None:
+                fvecXHweights = vecXHweights.take(sim_ind, axis=0)
+            else:
+                fvecXHweights = None
             exp_ind = np.array( [ (np.where(exp_resid==x))[0][0] for x in shared_resid ] )
             expblock = np.take(expblock, exp_ind, axis=1)
 
@@ -664,11 +737,12 @@ if __name__ == '__main__':
             fconsts_list = consts_list
             ftaus_list   = taus_list
             fvecXH       = vecXH
+            fvecXHweights = vecXHweights
 
         # = = = Do global scan of Diso = = =
         bDoGlobalScan = False
         if bDoGlobalScan:
-            Diso_init = do_global_scan_Diso( Diso, step=1.05, smin=-10, smax=10, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, expblock) )
+            Diso_init = do_global_scan_Diso( Diso, step=1.05, smin=-10, smax=10, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock) )
         else:
             Diso_init = Diso
 
@@ -680,7 +754,7 @@ if __name__ == '__main__':
                            [-np.sqrt(2.0/3.0), np.sqrt(1.0/6.0), np.sqrt(1.0/6.0)],
                            [                0, np.sqrt(1.0/2.0),-np.sqrt(1.0/2.0)]])
             d_init=np.multiply(0.1*dmat, p_init)
-            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2CSA, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, expblock), full_output=True )
+            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2CSA, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
             print fminOut
             Diso_opt=fminOut[0][0]
             S2s_opt  =fminOut[0][1]
@@ -698,7 +772,7 @@ if __name__ == '__main__':
             p_init=( Diso_init, relax_obj.gX.csa )
             # The directions are set like this because CSA and Diso compensate for each other's effects.
             d_init=( (0.1*p_init[0], 0.1*p_init[1]), (0.1*p_init[0], -0.1*p_init[1]) )
-            fminOut=fmin_powell( optfunc_R1R2NOE_DisoCSA, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, expblock), full_output=True )
+            fminOut=fmin_powell( optfunc_R1R2NOE_DisoCSA, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
             print fminOut
             csa_opt=fminOut[0][1]
             Diso_opt=fminOut[0][0]
@@ -713,7 +787,7 @@ if __name__ == '__main__':
             p_init=( Diso_init, 1.0 )
             d_init=( (0.1*p_init[0], 0.1*p_init[1]), (0.1*p_init[0], -0.1*p_init[1]) )
             # The directions are set like this because S2 and Diso compensate for each other's effects.
-            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, expblock), full_output=True )
+            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
             print fminOut
             S2s_opt=fminOut[0][1]
             Diso_opt=fminOut[0][0]
@@ -730,7 +804,7 @@ if __name__ == '__main__':
             p_init=Diso_init
             # The directions are set like this because CSA and Diso compensate for each other's effects.
             d_init=[0.1*Diso_init]
-            fminOut=fmin_powell(optfunc_R1R2NOE_Diso, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, expblock), full_output=True )
+            fminOut=fmin_powell(optfunc_R1R2NOE_Diso, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
             print fminOut
             Diso_opt=fminOut[0]
             chisq=fminOut[1]
@@ -743,10 +817,9 @@ if __name__ == '__main__':
             print >> sys.stderr, "= = Invalid optimisation mode!"
             sys.exit(1)
 
-        datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH)
+        datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
 
     print " = = Completed Relaxation calculations."
-    print datablock[:,0]
 
 # = = = Print
     if bJomega:

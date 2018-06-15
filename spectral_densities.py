@@ -22,8 +22,8 @@ class gyromag:
     def __init__(self, isotope):
         self.name=isotope
         self.csa=0.0
-        self.time_unit='s'
-        self.time_fact=_return_time_fact(self.time_unit)
+        self.timeUnit='s'
+        self.time_fact=_return_time_fact(self.timeUnit)
         self.set_gamma(self.name)
 
     def set_gamma(self, name):
@@ -56,10 +56,10 @@ class gyromag:
         mult = self.time_fact/old
         self.gamma *= mult
 
-class diffusion_model:
+class diffusionModel:
     def __init__(self, model, *args):
-        self.time_unit=args[0]
-        self.time_fact=_return_time_fact(self.time_unit)
+        self.timeUnit=args[0]
+        self.time_fact=_return_time_fact(self.timeUnit)
         if   model=='direct_transform':
             # Dummy entry for diffusion model with np.nan to ensure errors.
             self.name='direct_transform'
@@ -140,15 +140,54 @@ class diffusion_model:
             print >> sys.stderr, "= = ERROR: change_Diso for fully anisotropic models, not implemented."
             sys.exit(1)
 
-class relaxObject:
+class relaxMolecule:
     """
-    Help for class relaxObject:
+    Help for class relaxMolecules:
+    This class is designed to handle the computations of spin-relaxation of an entire molecule
+    - that may contain independent domains as well as disordered linkers calling for multiple diffusion models
+    - that may contain multiple CH and NH measurements, calling for multiple relaxation models.
+    - that may contain multiple conformations for ensemble calculation in anisotropic tumbling.
+    It is equivalent to a chain with residues, that can have multiple frames with weights.
+    The permits fast computation of < J > and < Relax > over a conformational ensemble
+    and only after collapse this to an average value.
+
+    The main reason that this doesn't, e.g., directly subclass from the MDTraj chain-res-atom format
+    is that I'd like a aingle consistent place to put in all broadcasting operations..
+
+        vecNames: A 1D-array for purely identification purposes, e,g, "1" or "1NH".
+                  This is mean to serve as the first domension
+        vecXYZ:   A minimum 2D-array of unit vectors specifying the set of available orientations,
+                  associated with a related diffusion frame or as disordered.
+                  Dimension (nRes, 3) or (nFrames, nRes, 3)
+        weights:  (vecXYZ.shape or 0) A weighting for the vecXYZ so as to support histogram input in large trajectories
+
+        mapVecGyromag:(nRes) Map each vector to a type bond length, and chemical shift anisotropy.
+                  By mapping each vector to its own gyromag, this supports residue-based CSA.
+        mapVecModel: (nRes) Map each vector to an available relaxation model.
+                  This supports having multiple relaxation models for two-domain tumbling.
+
+    """
+
+    def __init__(self, **kwargs):
+        self.residues=[]
+        self.vectors=[]
+        if kwargs is not None:
+            for key, value in kwargs.iteritems():
+                print "%s == %s" % (key, value)
+
+    def num_residues(self):
+        return len(self.residues)
+
+
+class relaxationModel:
+    """
+    Help for class relaxationModel:
     This class handles objects and functions related to calculating NMR spin relaxation.
     Attributes:
         bond - Name of the intended vector bond, eg 'NH'
         B_0  - Background magnetic field, in Teslas.
-        time_unit - Units of time used for the freqency, such as 'ns', or 'ps'.
-        rotdif_model - The Rotational Diffusion model used to define spectral densitiies J(omega)
+        timeUnit - Units of time used for the freqency, such as 'ns', or 'ps'.
+        rotdifModel - The Rotational Diffusion model used to define spectral densitiies J(omega)
     """
 
     # = = = Static class variables = = =
@@ -158,30 +197,30 @@ class relaxObject:
     iOmX = 1
     iOmH = 3
 
-    def __init__(self, bond, B_0):
+    def __init__(self, bondType, B_0):
         # Parameters associated with units
         self.omega=np.array(0.0)
-        self.time_unit='ns'
-        self.time_fact=_return_time_fact(self.time_unit)
+        self.timeUnit='ns'
+        self.time_fact=_return_time_fact(self.timeUnit)
         self.dist_unit='nm'
         self.dist_fact=_return_dist_fact(self.dist_unit)
 
         # Atomic parameters.
-        self.bond = bond
+        self.bondType = bondType
         self.B_0  = B_0
-        if   bond=='NH':
+        if   bondType=='NH':
             self.gH  = gyromag('1H')
             self.gX  = gyromag('15N')
             # = = Question use conventional 1.02, or 1.04 to include librations, according to Case, J Biomol. NMR, 1999? = = =
             self.rXH = 1.02e-1
             #self.rXH = 1.04e-1
-        elif bond=='CH':
+        elif bondType=='CH':
             self.gH  = gyromag('1H')
             self.gX  = gyromag('13C')
             # Need to update bond length for this atoms
             self.rXH = 1.02e-1
         else:
-            print >> sys.stderr, "= = ERROR in relaxObject: wrong bond definition! = ="
+            print >> sys.stderr, "= = ERROR in relaxationModel: wrong bondType definition! = =" % bondType
             sys.exit(1)
 
         # relaxation model. Note in time units of host object.
@@ -194,10 +233,10 @@ class relaxObject:
         old=self.time_fact
         self.time_fact = _return_time_fact(tu)
         # Update all time units can measurements.
-        self.time_unit=tu
+        self.timeUnit=tu
         mult = self.time_fact / old
         self.omega *= mult
-        self.rotdif_model.set_time_unit(tu)
+        self.rotdifModel.set_time_unit(tu)
         #self.gH.set_time_unit(tu) - leave immune to time unit changes!
         #self.gX.set_time_unit(tu)
 
@@ -234,7 +273,7 @@ class relaxObject:
             - rigid_symmtop_D, D_par, D_perp
             - rigid_ellipsoid_D, Dx, Dy, Dz
         """
-        self.rotdif_model=diffusion_model(model, self.time_unit, *args)
+        self.rotdifModel=diffusionModel(model, self.timeUnit, *args)
 
     def get_Jomega(self, vNH):
         """
@@ -247,16 +286,19 @@ class relaxObject:
         return 'Not composed'
 
     def get_relax_from_J(self, J):
-        #f_DD  = 0.10* (mu_0*hbar/4.0/pi)**2 * gamma_15N**2 * gamma_1H**2 * r_NH**-6.0
-        #f_CSA = 2.0/15.0 * gamma_15N**2 * B_0 **2 * DeltaSig_15N**2
-        #mu_0 = 4*pi*1e-7      ; # m   kg s^-2 A-2
-        #hbar = 1.0545718e-34  ; # m^2 kg s^-1
-        #pi   = 3.14159265359
-        #gamma_1H  = 267.513e6  ; # rad s^-1 T^-1
-        #gamma_15N = -27.116e6  ; # rad s^-1 T^-1
-        #omega_15N = - gamma_15N * B_0 .
-        #r_NH = 1.02e-10 ;# m
-        # (mu_0*hbar/4.0/pi)**2 m^-1 s^2 is the 10^-82 number below. f_DD and f_CSA are maintained in SI units.
+        """
+        The maths behind this is:
+        f_DD  = 0.10* (mu_0*hbar/4.0/pi)**2 * gamma_15N**2 * gamma_1H**2 * r_NH**-6.0
+        f_CSA = 2.0/15.0 * gamma_15N**2 * B_0 **2 * DeltaSig_15N**2
+        mu_0 = 4*pi*1e-7      ; # m   kg s^-2 A-2
+        hbar = 1.0545718e-34  ; # m^2 kg s^-1
+        pi   = 3.14159265359
+        gamma_1H  = 267.513e6  ; # rad s^-1 T^-1
+        gamma_15N = -27.116e6  ; # rad s^-1 T^-1
+        omega_15N = - gamma_15N * B_0 .
+        r_NH = 1.02e-10 ;# m
+         (mu_0*hbar/4.0/pi)**2 m^-1 s^2 is the 10^-82 number below. f_DD and f_CSA are maintained in SI units.
+        """
         iOmX = 1; iOmH = 3
 
         f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
@@ -268,6 +310,24 @@ class relaxObject:
         NOE = 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[iOmH+iOmX] - J[iOmH-iOmX])
 
         return R1, R2, NOE
+
+    def get_relax_from_J_simd(self, J, axis=-1 ):
+        iOmX = 1; iOmH = 3
+
+        f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
+        f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
+
+        if axis==-1:
+            R1 = self.time_fact*( f_DD*( J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] ) + f_CSA*J[...,iOmX] )
+            R2 = self.time_fact*( 0.5*f_DD*( 4*J[...,0] + J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] + 6*J[...,iOmH] ) + 1.0/6.0*f_CSA*(4*J[...,0] + 3*J[...,iOmX]) )
+            NOE = 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[...,iOmH+iOmX] - J[...,iOmH-iOmX])
+        elif axis==0:
+            R1 = self.time_fact*( f_DD*( J[iOmH-iOmX,...] + 3*J[iOmX,...] + 6*J[iOmH+iOmX,...] ) + f_CSA*J[iOmX,...] )
+            R2 = self.time_fact*( 0.5*f_DD*( 4*J[0,...] + J[iOmH-iOmX,...] + 3*J[iOmX,...] + 6*J[iOmH+iOmX,...] + 6*J[iOmH,...] ) + 1.0/6.0*f_CSA*(4*J[0,...] + 3*J[iOmX,...]) )
+            NOE = 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[iOmH+iOmX,...] - J[iOmH-iOmX,...])
+
+        return R1, R2, NOE
+
 
     def _get_f_DD(self):
         return 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
@@ -310,6 +370,12 @@ class relaxObject:
         that have high frequency components removed.
         """
         return J[self.iOmX]/J[0]
+
+    def get_rho_from_J_simd(self, J, axis=-1):
+        if axis == -1:
+            return J[...,self.iOmX]/J[...,0]
+        elif axis == 0:
+            return J[self.iOmX,...]/J[0,...]
 
     def calculate_rho_from_relaxation(self, rvec, drvec=[] ):
         """
@@ -366,7 +432,7 @@ def _return_dist_fact(du):
     elif du=='m':
         return 1.0e-0
     else:
-        print >> sys.stderr, "= = ERROR in relaxObject: invalid distance unit definition!"
+        print >> sys.stderr, "= = ERROR in relaxationModel: invalid distance unit definition!"
         return
 
 #Associated functions to assist
