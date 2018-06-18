@@ -7,6 +7,12 @@ import general_scripts as gs
 import general_maths as gm
 import transforms3d.quaternions as q_ops
 import transforms3d_supplement as qs
+try:
+    import psutil
+    bPsutil = True
+except:
+    print "= = = NOTE: Module psutil isnot available, cannot respect memory usage on this run.."
+    bPsutil = False
 
 def print_selection_help():
     print "Notes: This python program uses MDTraj as its underlying engine to analyse trajectories and select atoms."
@@ -457,19 +463,33 @@ if __name__ == '__main__':
                 print >> sys.stderr, "      ...Residue-XORs: %s " % ( set(resXH)^set(resXH_loc) )
 
         vecXH.append(vecXH_loc) ; vecXHfit.append(vecXHfit_loc)
-        print "     ... XH-vector data added to memory."
+        print "     ... XH-vector data added to memory, using 2x %.2f MB" % (  sys.getsizeof(vecXH_loc)/1024.0**2.0 )
+
 #        print "= = = Loaded trajectory %s - Found %i XH-vectors %i frames." %  ( in_flist[i], nBonds_loc, vecXH_loc.shape[0] )
 
-    vecXH_loc = [] ; vecXHfit_loc = []
+    del vecXH_loc ; del vecXHfit_loc
     # = = =
     print "= = Loading finished."
+    vecXH=np.array(vecXH) ; vecXHfit=np.array(vecXHfit)
+
+    if bPsutil:
+        # = = = Check vector size and currently free memory. Units are in bytes.
+        nFreeMem = 1.0*psutil.virtual_memory()[3]/1024.0**2
+        nVecMem = 1.0*sys.getsizeof(vecXH)/1024.0**2
+        if nFreeMem < 2*nVecMem:
+            print " = = = WARNING: the size of vectors is getting close to the amount of free system memory!"
+            print "    ... %.2f MB used by one vector vecXH." % nVecMem
+            print "    ... %.2f MB free system memory." % nFreeMem
+        else:
+            print " = = = Memoryfootprint debug. vecXH uses %.2f MB versus %.2f MB free memory" % ( nVecMem, nFreeMem )
+    else:
+        print "= = = psutil module has not been loaded. Cannot check for memory footprinting."
 
     print "= = Reformatting all vecXH information into chunks of tau ( %g ) " % tau_memory
 
     vecXH = reformat_vecs_by_tau(vecXH, deltaT, tau_memory)
     vecXHfit = reformat_vecs_by_tau(vecXHfit, deltaT, tau_memory)
 
-    # print type(vecXH[0,0,0,0])
     # First analysis to be done is the C(t)-analysis, since that cannot be done after compressing the 4D to 3D.
     if bDoCt:
         print "= = = Conducting Ct_external using Palmer's approach."
@@ -488,19 +508,41 @@ if __name__ == '__main__':
 
     # Compress 4D down to 3D for the rest of the calculations to simplify matters.
     sh = vecXHfit.shape
-    #vecXH    = vecXH.reshape( ( sh[0]*sh[1], sh[-2], sh[-1]) )
     vecXHfit = vecXHfit.reshape( ( sh[0]*sh[1], sh[-2], sh[-1]) )
     # = = = All sections below assume simple 3D arrays = = =
     del vecXH
 
+    # = = = This operation can be particularly memory intensive for full parallelism.
     if bRotVec:
         print "= = = Rotating all fitted vectors by the input quaternion into PAF."
-        try:
-            vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
-        except MemoryError:
-            print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Doing this the slower way."
-            for i in range(sh[0]*sh[1]):
-                vecXHfit[i] = qs.rotate_vector_simd(vecXHfit[i], q_rot)
+        if bPsutil:
+            # = = = Check vector size and currently free memory. Units are in bytes.
+            nFreeMem = psutil.virtual_memory()[3]
+            nVecMem = sys.getsizeof(vecXHfit)
+            if nVecMem > nFreeMem:
+                bSplit = True
+            else:
+                bSplit = False
+        else:
+            # = = = Try not to go over 4 GB in usage.
+            nVecMem = sys.getsizeof(vecXHfit)
+            if nVecMem > 2*1024**3:
+                bSplit = True
+            else:
+                bSplit = False
+
+        if not bSplit:
+            try:
+                vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
+            except MemoryError:
+                print >> sys.stderr, "= = ERROR: Ran out of memory running vector rotations!"
+                # = = = Split into blocks as defined by tau_memory
+                for i in range(sh[0]):
+                    vecXHfit[i*sh[1]:(i+1)*sh[1]] = qs.rotate_vector_simd(vecXHfit[i*sh[1]:(i+1)*sh[1] ], q_rot)
+        else:
+            # = = = Split into blocks as defined by tau_memory
+            for i in range(sh[0]):
+                vecXHfit[i*sh[1]:(i+1)*sh[1]] = qs.rotate_vector_simd(vecXHfit[i*sh[1]:(i+1)*sh[1] ], q_rot)
 
     if bDoVecAverage:
         # Note: gs-script normalises along the last axis, after this mean operation
@@ -514,7 +556,7 @@ if __name__ == '__main__':
             rtp = gm.xyz_to_rtp(vecXHfit)
             # print type(rtp[0,0,0])
         except MemoryError:
-            print >> sys.stderr, "= = WARNING: Ran out of memory running spherical conversion!"
+            print >> sys.stderr, "= = ERROR: Ran out of memory running spherical conversion!"
             sys.exit(9)
             # = = = Don't bother rescuing.
             #for i in range(sh[0]*sh[1]):

@@ -283,14 +283,20 @@ def rotate_vector_simd(v, q, axis=-1, bNormalised=False):
         q = vecnorm_NDarray(q)
     v=np.array(v)
     q_w, q_v = decompose_quat(q, axis=axis, bReshape=True)
+    # = = = Determine a
     if axis==-1:
-        a = np.cross(q_v, v, axisa=axis, axisb=axis) + q_w[...,None]*v
+        tmp = np.cross(q_v, v, axisa=axis, axisb=axis) + q_w[...,None]*v
     elif axis==0:
-        a = np.cross(q_v, v, axisa=axis, axisb=axis) + q_w[None,...]*v
+        tmp = np.cross(q_v, v, axisa=axis, axisb=axis) + q_w[None,...]*v
     else:
         print sys.stderr, "= = = ERROR: rotate_vector_simd does not support arbitrary axis definitions."
         sys.exit(1)
+    # = = = Determine b
+    tmp = np.cross(q_v, tmp, axisa=axis, axisb=axis)
+    return tmp+tmp+v
 
-    b = np.cross(q_v, a, axisa=axis, axisb=axis)
-    return b+b+v
+#def rotmat_to_quat_simd(mat):
+#    """
+#    Implementation based on James Diebel, "Representing Attitude: Euler Angles, Unit Quaternions, and Rotation Vectors", Stanford University, 2006.
+#    """
 

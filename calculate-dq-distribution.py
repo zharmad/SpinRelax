@@ -85,6 +85,15 @@ def obtain_v_dqs(ndat, delta, q):
         out[i]=dq[1:4]
     return out
 
+def obtain_self_dq(q, delta):
+    """
+    Vectorise { q^{-1}(t) q(t+delta) } over the range of q.
+    Assumes that there are only two input dimensions q(N, 4) and returns dq(N-delta,4) with imaging to reduce rotations
+    """
+    #print q.shape, delta
+    #return qs.vecnorm_NDarray( qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) ) )
+    return quat_reduce_simd( quat_mult_simd( quat_invert(q[:-delta]), q[delta:]) )
+
 def average_LegendreP1quat(ndat, vq):
     out=0.0
     for i in range(ndat):
@@ -401,14 +410,14 @@ def debug_orthogonality(axes):
          np.dot(axes[0],axes[2]),
          np.dot(axes[1],axes[2]))
 
-def matrix_to_quaternion(time, matrix, bInvert=False):
+def rotmatrix_to_quaternion(time, matrix, bInvert=False):
     """
     Converts a matrix to quaternion, with a reverse if necessary
     """
 
     nPts=len(time)
     if nPts != len(matrix):
-        print >> sys.stderr, "= = = ERROR in matrix_to_quaternion: lengths are not the same!"
+        print >> sys.stderr, "= = = ERROR in rotmatrix_to_quaternion: lengths are not the same!"
         return
 
     out=np.zeros( (5,nPts) )
@@ -506,7 +515,7 @@ if __name__ == '__main__':
     if in_fname.endswith('.xvg'):
         # = = Assume that the input file is from gmx rotmat, which is an xmgrace file.
         tmp1, tmp2 = gs.load_xys(in_fname)
-        data = matrix_to_quaternion(tmp1, tmp2, bInvert=True )
+        data = rotmatrix_to_quaternion(tmp1, tmp2, bInvert=True )
         tmp1 = tmp2 = None
         ndat = data.shape[1]
     else:
@@ -579,7 +588,9 @@ if __name__ == '__main__':
 
         #Gather the individual samples of angular displacements.
         num_nd=ndat-delta
-        v_dq=obtain_v_dqs(num_nd, delta, data[1:5].T)
+
+        v_dq=obtain_self_dq(data[1:5].T, delta )[...,1:4]	
+        #v_dq=obtain_v_dqs(num_nd, delta, data[1:5].T)
         #Isotropic diffusion, use theta_q
         iso_sum1=average_LegendreP1quat(num_nd, v_dq)
         #Anisotropic Diffusion. Need tensor of vq

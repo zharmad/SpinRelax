@@ -11,7 +11,7 @@ import csv
 def normalise_vector_array(v):
     """
     Takes an ND-array of vectors of shape (i, j, k, ..., 3)
-    and noramlises it along the last axis.
+    and normalises it along the last axis.
     """
     return v/np.sqrt((v**2).sum(-1))[..., np.newaxis]
 
@@ -337,15 +337,19 @@ def print_R_hist(fn, hist, edges, header=''):
         print >> fp, '%g' % val
 
 def print_gplot_hist(fn, hist, edges, header='', bSphere=False):
+    """
+    Gnuplot is not a histogram plotter, and so we will plot each bin entry at the enter of the bin.
+    For spherical outputs, the entire spherical coverage is assumed and additional data is printed to complete the sphere. These include:
+    - Two column caps at the z-poles using the final values of ymin and ymax.
+    - One additional row  at 2pi + 0.5*(x[0]+x[1]).
+    Note that ndemunerate method iterates across all specified dimensions
+    First gather and print some data as comments to aid interpretation and future scripting.
+    """
 
     fp = open(fn, 'w')
     nbins=hist.shape
     dim=len(nbins)
 
-    # For Gnuplot, we should plot the average between the two edges.
-    # ndemunerate method iterates across all specified dimensions
-    # First gather and print some data as comments to aid interpretation and future scripting.
-    # Use final histogram output as authoritative source!
     if header != '':
         print >> fp, '%s' % header
     print >> fp, '# DIMENSIONS: %i' % dim

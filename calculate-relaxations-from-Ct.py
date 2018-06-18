@@ -359,18 +359,6 @@ def convert_LambertCylindricalHist_to_vecs(hist, edges):
     #weights = np.zeros_like( vecs )
     return np.repeat( binVecs.reshape(nPoints,3)[np.newaxis,...], nResidues, axis=0), \
            np.reshape( hist, ( nResidues, nPoints) )
-    #vecs = [] ; weights = []
-    #bFirst=True
-    #for res in range(nResidues):
-    #    mapp = np.where( hist[res] > 0 )
-    #    nVals = len(mapp[0])
-    #    tmpW = [ hist[res][i,j] for i,j in zip(mapp[0],mapp[1])   ]
-    #    tmpV = [ averageVecs[i,j] for i,j in zip(mapp[0],mapp[1]) ]
-    #    vecs.append(tmpV)
-    #    weights.append(tmpW)
-    #    if bFirst:
-    #        bFirst=False
-    #        print "    ...weight sum: ", np.sum(tmpW)
     # return vecs, weights
 
 def read_vector_distribution_from_file( fileName ):
