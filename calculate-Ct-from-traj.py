@@ -519,7 +519,8 @@ if __name__ == '__main__':
             # = = = Check vector size and currently free memory. Units are in bytes.
             nFreeMem = psutil.virtual_memory()[3]
             nVecMem = sys.getsizeof(vecXHfit)
-            if nVecMem > nFreeMem:
+            print "= = = Memory check: allocation will require at least %.2f MB from %.2f MB remaining." % (nVecMem/1024.**2.0, nFreeMem/1024.**2.0)
+            if 2*nVecMem > nFreeMem:
                 bSplit = True
             else:
                 bSplit = False
@@ -535,7 +536,8 @@ if __name__ == '__main__':
             try:
                 vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
             except MemoryError:
-                print >> sys.stderr, "= = ERROR: Ran out of memory running vector rotations!"
+                print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Memory requirement estimates were too low."
+                print >> sys.stderr, "= =      ....rerunning with split vectors."
                 # = = = Split into blocks as defined by tau_memory
                 for i in range(sh[0]):
                     vecXHfit[i*sh[1]:(i+1)*sh[1]] = qs.rotate_vector_simd(vecXHfit[i*sh[1]:(i+1)*sh[1] ], q_rot)
