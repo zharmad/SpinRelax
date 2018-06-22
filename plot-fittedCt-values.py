@@ -135,13 +135,19 @@ def read_fittedCt_parameters(fileName):
     return out
 
 def _determine_point_size(frac, sizeMin, sizeMax):
-    return (sizeMin+frac*sizeMax)**2.0
+    return (sizeMin+frac*(sizeMax-sizeMin))**2.0
 
 def _update_range_if_given( range, min, max):
     out=list(range)
     out[0] = min if min != None else out[0]
     out[1] = max if max != None else out[1]
     return out
+
+def _int_round(val, mod, bUp=False):
+    if bUp:
+        return val+mod-(val%mod)
+    else:
+        return val-(val%mod)
 
 parser = argparse.ArgumentParser(description='Plots the fitted parameters from *_fittedCt.dat as a scatter plot.',
                                              formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -318,19 +324,19 @@ for a in axList:
 
 if args.sequence == None:
     # = = = Automated x-axis tick labeling.
-    xMax = ax2.get_xlim()[1]
+    xRange = ax2.get_xlim()[1] - ax2.get_xlim()[0]
     for a in axList:
-        if xMax <= 10:
-            a.set_xticks( np.arange(1,xMax) )
-        elif xMax <= 50:
-            a.set_xticks( np.arange(1,xMax), minor=True )
-            a.set_xticks( np.arange(5,xMax,5) )
-        elif xMax <= 200:
-            a.set_xticks( np.arange(2,xMax,2), minor=True )
-            a.set_xticks( np.arange(10,xMax,10) )
+        if xRange <= 10:
+            a.set_xticks( np.arange(xMin,xMax) )
+        elif xRange <= 50:
+            a.set_xticks( np.arange(xMin,xMax), minor=True )
+            a.set_xticks( np.arange(_int_round(xMin,5, True),xMax,5) )
+        elif xRange <= 200:
+            a.set_xticks( np.arange(_int_round(xMin,2, True),xMax,2), minor=True )
+            a.set_xticks( np.arange(_int_round(xMin,10, True),xMax,10) )
         else:
-            a.set_xticks( np.arange(5,xMax,5), minor=True )
-            a.set_xticks( np.arange(20,xMax,20) )
+            a.set_xticks( np.arange(_int_round(xMin,5, True),xMax,5), minor=True )
+            a.set_xticks( np.arange(_int_round(xMin,20, True),xMax,20) )
 else:
     l=args.sequence.split()
     if len(l)==1:
