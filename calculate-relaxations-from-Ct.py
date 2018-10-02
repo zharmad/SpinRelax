@@ -588,7 +588,7 @@ if __name__ == '__main__':
         # Read quaternion
         if args.qrot_str != "":
             bQuatRot = True
-            q_rot = [ float(v) for v in args.qrot_str.split() ]
+            q_rot = np.array([ float(v) for v in args.qrot_str.split() ])
             if not qops.qisunit(q_rot):
                 q_rot = q_rot/np.linalg.norm(q_rot)
         else:
@@ -614,7 +614,8 @@ if __name__ == '__main__':
 
             if bQuatRot:
                 print "    ....rotating input vectors into PAF frame using q_rot."
-                vecXH = qs.rotate_vector_simd(vecXH, q_rot)
+                for i in range(len(vecXH)):
+                    vecXH[i] = qs.rotate_vector_simd(vecXH[i], q_rot)
                 #shape = vecXH.shape
                 #for i in range(shape[0]):
                 #    for j in range(shape[1]):

@@ -109,9 +109,9 @@ if __name__ == '__main__':
         # = = = Ct_list is a list of 2D arrays.
         # = = = Perform grand average over individual observations. Assuming equal weights (dangerous!)
         Ct_list = np.array(Ct_list)
-        Ct = np.mean(Ct_list, axes=0)
+        Ct = np.mean(Ct_list, axis=0)
         if len(Cterr_list[0]) == 0:
-            Cterr = np.std(Ct_list, axes=0)
+            Cterr = np.std(Ct_list, axis=0)
         else:
             shape=Ct.shape
             Cterr_list = np.array(Cterr_list)

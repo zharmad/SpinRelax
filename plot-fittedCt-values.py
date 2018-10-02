@@ -1,7 +1,12 @@
 import sys, argparse
 import numpy as np
+
+#import matplotlib
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 #from matplotlib import rc
+
+plt.ioff()
 
 #rc('text', usetex=True)
 
@@ -167,6 +172,10 @@ parser.add_argument('--noshift', action='store_true', default=False,
                     help='Do not shift tau-components outside the plot range, but instead ignore them unscientifically.')
 parser.add_argument('--tu', type=str, default='ps',
                     help='Cosmetic labelling of time units for the fitted constants.')
+parser.add_argument('--figx', type=float, default=5.0,
+                    help='Figure size along X-dimension in inches.')
+parser.add_argument('--figy', type=float, default=3.0,
+                    help='Figure size along Y-dimension in inches.')
 parser.add_argument('--smin', type=float, default=5.0,
                     help='Cosmetic resizing of the points.')
 parser.add_argument('--smax', type=float, default=10.0,
@@ -260,13 +269,16 @@ S2slow = np.array( S2slow )
 S2fast = np.array( S2fast )
 points = np.array( points )
 print "= = Shape of the read data:", S2slow.shape, points.shape, S2fast.shape
+residFirst=points[0,0]
+residLast =points[-1,0]
+print "= = First and last resid label read:", residFirst, residLast
 
 # = = = = Ignore subplot if all components are 0.0 to prvent an empty plot.
 bPlotS2s = True if np.any(S2slow>0) else False
 bPlotS2f = True if np.any(S2fast>0) else False
 
 # = = = matplotlib Time! = = =
-fig = plt.figure()
+fig = plt.figure(figsize=(args.figx,args.figy))
 fig.subplots_adjust(hspace=0.05)
 
 if bPlotS2f and bPlotS2s:
@@ -344,6 +356,7 @@ else:
         l=l[0]
     nPts=len(l)
     for a in axList:
+#        a.set_xticks( np.arange(args.xshift+residFirst-1,nPts+args.xshift+residFirst-1) )
         a.set_xticks( np.arange(args.xshift,nPts+args.xshift) )
         a.set_xticklabels( [ x for x in l ] )
 
@@ -358,7 +371,8 @@ if bDoTitle:
     plt.suptitle(figTitle)
 fig.subplots_adjust(right=0.9)
 cbar_ax = fig.add_axes([0.92, 0.1, 0.01, 0.8])
-fig.colorbar(sc, cax=cbar_ax)
+cbar = fig.colorbar(sc, cax=cbar_ax)
+#cbar.set_label("Contribution", rotation=90)
 
 # = = = Output.
 if args.outFile == None:

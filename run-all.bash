@@ -461,7 +461,7 @@ for Bfield in $Bfields ; do
         $pycmd $script_loc/calculate-relaxations-from-Ct.py \
             -f ${outpref}_fittedCt.dat \
             -o ${outpref}-$of \
-            --distfn ${outpref}_PhiTheta.npz \
+            --distfn $vecDistFile \
             -F ${Bfield}e6 \
             --tu ps --Jomega $zetaStr \
             --D "$Diso $Dani"
@@ -475,7 +475,7 @@ for Bfield in $Bfields ; do
             $pycmd $script_loc/calculate-relaxations-from-Ct.py \
                 -f ${outpref}_fittedCt.dat \
                 -o ${outpref}-$of-opt${optmode} \
-                --distfn ${outpref}_PhiTheta.npz \
+                --distfn $vecDistFile \
                 -F ${Bfield}e6 \
                 --tu ps $zetaStr \
                 --D "$Diso $Dani" \

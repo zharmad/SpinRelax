@@ -518,12 +518,17 @@ if __name__ == '__main__':
         if bPsutil:
             # = = = Check vector size and currently free memory. Units are in bytes.
             nFreeMem = psutil.virtual_memory()[3]
+
             nVecMem = sys.getsizeof(vecXHfit)
-            print "= = = Memory check: allocation will require at least %.2f MB from %.2f MB remaining." % (nVecMem/1024.**2.0, nFreeMem/1024.**2.0)
-            if 2*nVecMem > nFreeMem:
-                bSplit = True
+            if nVecMem == 0.0 or nVecMem/1024.**2.0 == 0.0:
+                print >> sys.stderr, "= = FUCK YOU CRAPPY SYS OPERATION."
+                bSplit=True
             else:
-                bSplit = False
+                print "= = = Memory check: allocation will require at least %.2f MB from %.2f MB remaining." % (nVecMem/1024.**2.0, nFreeMem/1024.**2.0)
+                if 2*nVecMem > nFreeMem:
+                    bSplit = True
+                else:
+                    bSplit = False
         else:
             # = = = Try not to go over 4 GB in usage.
             nVecMem = sys.getsizeof(vecXHfit)
