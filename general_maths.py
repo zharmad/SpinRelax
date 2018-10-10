@@ -1,6 +1,14 @@
 import numpy as np
 import sys
 
+def ones_except(vec, pos=0):
+    """
+    Returns a copy of vector with values of 1 everywhere except at the given position.
+    """
+    out=np.ones_like(vec)
+    out[axis]=vec[axis]
+    return out
+   
 def gather(a, b):
     return np.sum(np.multiply(a, b))
 
