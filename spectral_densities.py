@@ -4,6 +4,7 @@ import sys
 import numpy as np
 from math import *
 import npufunc
+import general_maths as gm
 
 """
 Notes: Uses a user-defined numpy universal function in C (npufunc.so)
@@ -17,6 +18,7 @@ Cf.
 For early CSA discussions, see
 - Fushman, Tjandra, and Cowburn. J. Am. Chem. Soc., 1998
 """
+
 
 class gyromag:
     def __init__(self, isotope):
@@ -140,6 +142,95 @@ class diffusionModel:
             print >> sys.stderr, "= = ERROR: change_Diso for fully anisotropic models, not implemented."
             sys.exit(1)
 
+class relaxMeasurement:
+    """
+    This class handles aspects specific to an individual NMR measurement.
+    It will have a coded conversion factor, type, and other data.
+    
+    By default, this will evaluate the frequences at which the relaxation is sensitive to.
+    E.g. for R1, it will use J(0), J(wX), J(wH-wX), J(wH), J(wH+wX)
+    The order is statically coded to give increasing frequency for X-H relaxations.
+    """
+    
+    # = = = Static class variables = = =
+    # Default indexing to create the five NMR-component frequencies
+    # J(0), J(wX), J(wH-wX), J(wH), J(wH+wX)
+    # In ascending order. This is used to obtain relaxation properties from a five-value J(function)
+    iOm0   = 0
+    iOmA   = 1
+    iOmBmA = 2
+    iOmB   = 3
+    iOmBpA = 4
+    
+    def __init__(self, experiment='R1', nucleusA='15N', nucleusB='1H', fieldStrength=600, fieldUnit='MHz', ):
+        """
+        Standard initiation mode
+        """
+        
+        self.timeUnit='ns'
+        self.time_fact=_return_time_fact(self.timeUnit)
+        self.dist_unit='nm'
+        self.dist_fact=_return_dist_fact(self.dist_unit)
+        
+        self.gA = gyromag( nucleusA )
+        self.gB = gyromag( nucleusB )
+        self.rAB = 1.02e-1
+        tmpStr1=nucleusB+'-'+nucleusA
+        tmpStr2=nucleusB+'+'+nucleusA
+       
+        self.B_0 = None
+        self.set_magnetic_field( fieldStrength, fieldUnit )
+        
+        if experiment=='R1':
+            self.nFreq=5
+            self.omega=np.zeros(5, dtype=np.float32)
+            self.omegaNames={ '0': 0, nucleusA: 1, nucleusB: 3, tmpStr1: 2, tmpStr2: 4 }
+            self.omega[1] = -1.0*self.gA.gamma*self.B_0*self.time_fact
+            self.omega[2] = (self.omega[iOmB]-self.omega[iOmA])            
+            self.omega[3] = -1.0*self.gB.gamma*self.B_0*self.time_fact
+            self.omega[4] = (self.omega[iOmB]+self.omega[iOmA])           
+            
+        elif experiment=='R2':
+            self.nFreq=5        
+            self.omega=np.zeros(5, dtype=np.float32)
+            self.omegaNames={ '0': 0, nucleusA: 1, nucleusB: 3, tmpStr1: 2, tmpStr2: 4 }                 
+            self.omega[1] = -1.0*self.gA.gamma*self.B_0*self.time_fact
+            self.omega[2] = (self.omega[iOmB]-self.omega[iOmA])            
+            self.omega[3] = -1.0*self.gB.gamma*self.B_0*self.time_fact
+            self.omega[4] = (self.omega[iOmB]+self.omega[iOmA])
+            
+        elif experiment=='NOE':
+            self.nFreq=2
+            self.omega=np.zeros(2, dtype=np.float32)
+            self.omegaNames={tmpStr1: 0, tmpStr2: 1}
+            self.omega[0] = (self.omega[iOmB]-self.omega[iOmA])
+            self.omega[1] = (self.omega[iOmB]+self.omega[iOmA])            
+          
+        else:
+            _BAIL( "__init__", "incorrect experiment mode given ( %s )" % experiment )
+
+    def set_magnetic_field( inp, unit ):
+        if unit == 'Hz':
+            self.B0 = 2.0*np.pi*inp / 267.513e6        
+        elif unit == 'MHz':
+            self.B0 = 2.0*np.pi*inp / 267.513
+        elif unit == 'T':
+            self.B0 = inp
+        else:
+            _BAIL( "set_magnetic_field", "incorrect field units given ( %s )" % unit )
+        
+    def set_time_unit(self, tu):
+        old=self.time_fact
+        self.time_fact = _return_time_fact(tu)
+        # Update all time units can measurements.
+        self.timeUnit=tu
+        mult = self.time_fact / old
+        self.omega *= mult
+
+    def print_omega_names(self):
+        for key in self.omegaNames:
+            print key
+
 class relaxMolecule:
     """
     Help for class relaxMolecules:
@@ -178,11 +269,45 @@ class relaxMolecule:
     def num_residues(self):
         return len(self.residues)
 
+class relaxHandlerNew:
+    """
+    Help for class relaxationModel:
+    This is the overall handling class used to compute spin relaxations from trajectories.
+    It collects a number of smaller classes that are responsible for functionally distinct sub-components,
+    i.e.:
+    - the NMR measurements, which handles frequencies, NH types, and spins.
+    - the molecule, which handles sequence information, domain definitions, rotational diffusion models, vector data
+    
+    This overall class contains the following functions:
+    - the computing and fitting procedures that need the above sub-classes.
+            
+    """
+
+    def __init__(self):
+        """
+        Initiate empty handler.
+        """
+        self.nMeasurements=0
+        self.measurements=[]
+        self.nMolecules=0
+        self.molecules=[]
+
+    def compute_all_values(self):
+        for i in nMolecules:
+           return None
 
 class relaxationModel:
     """
     Help for class relaxationModel:
-    This class handles objects and functions related to calculating NMR spin relaxation.
+    This is the overall handling class used to compute spin relaxations from trajectories.
+    It collects a number of smaller classes that are responsible for functionally distinct sub-components,
+    i.e.:
+    - the NMR measurements, which handles frequencies, NH types, and spins.
+    - the molecule, which handles sequence information, domain definitions, rotational diffusion models, vector data
+    
+    This overall class contains the following functions:
+    - the computing and fitting procedures that need the above sub-classes.
+    
     Attributes:
         bond - Name of the intended vector bond, eg 'NH'
         B_0  - Background magnetic field, in Teslas.
@@ -285,7 +410,7 @@ class relaxationModel:
             J[i] = function_to_be_written(vNH[i])
         return 'Not composed'
 
-    def get_relax_from_J(self, J):
+    def get_relax_from_J(self, J, CSAvalue=None):
         """
         The maths behind this is:
         f_DD  = 0.10* (mu_0*hbar/4.0/pi)**2 * gamma_15N**2 * gamma_1H**2 * r_NH**-6.0
@@ -302,7 +427,11 @@ class relaxationModel:
         iOmX = 1; iOmH = 3
 
         f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
-        f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
+
+        if CSAvalue is None:
+            f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
+        else:
+            f_CSA = 2.0/15.0 * CSAvalue**2.0 * ( self.gX.gamma * self.B_0 )**2		
 
         # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
         R1 = self.time_fact*( f_DD*( J[iOmH-iOmX] + 3*J[iOmX] + 6*J[iOmH+iOmX] ) + f_CSA*J[iOmX] )
@@ -311,15 +440,18 @@ class relaxationModel:
 
         return R1, R2, NOE
 
-    def get_relax_from_J_simd(self, J, axis=-1 ):
+    def get_relax_from_J_simd(self, J, axis=-1, CSAvalue=None):
         iOmX = 1; iOmH = 3
 
-        f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0
-        f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
-
+        f_DD = 0.10 * 1.1121216813552401e-82*self.gH.gamma**2.0*self.gX.gamma**2.0 *(self.rXH*self.dist_fact)**-6.0        
+        if CSAvalue is None:
+            f_CSA = 2.0/15.0 * self.gX.csa**2.0 * ( self.gX.gamma * self.B_0 )**2
+        else:
+            f_CSA = 2.0/15.0 * CSAvalue**2.0 * ( self.gX.gamma * self.B_0 )**2		
+                    
         if axis==-1:
             R1 = self.time_fact*( f_DD*( J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] ) + f_CSA*J[...,iOmX] )
-            R2 = self.time_fact*( 0.5*f_DD*( 4*J[...,0] + J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] + 6*J[...,iOmH] ) + 1.0/6.0*f_CSA*(4*J[...,0] + 3*J[...,iOmX]) )
+            R2 = self.time_fact*( 0.5*f_DD*( 4*J[...,0] + J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] + 6*J[...,iOmH] ) + 1.0/6.0*f_CSA*(4*J[...,0] + 3*J[...,iOmX]) )            
             NOE = 1.0 + self.time_fact * self.gH.gamma/(self.gX.gamma*R1) * f_DD*(6*J[...,iOmH+iOmX] - J[...,iOmH-iOmX])
         elif axis==0:
             R1 = self.time_fact*( f_DD*( J[iOmH-iOmX,...] + 3*J[iOmX,...] + 6*J[iOmH+iOmX,...] ) + f_CSA*J[iOmX,...] )
@@ -402,6 +534,17 @@ class relaxationModel:
             sys.exit(1)
             return (rho, drho)
 
+# = = = = = = =
+# End class definitions.
+# Begin function definitions.
+# = = = = = = =
+
+def _BAIL( functionName, message ):
+    """
+    Universal failure mode message.
+    """
+    print >> sys.stderr, "= = ERROR in function %s : %s" % ( functionName, message)
+    sys.exit(1)    
 
 def _return_time_fact(tu):
     if tu=='ps':

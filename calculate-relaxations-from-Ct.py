@@ -13,22 +13,58 @@ from scipy.optimize import fmin_powell
 # There may be minor mistakes in the selection text. Try to identify what is wrong.
 def confirm_seltxt(ref, Hseltxt, Xseltxt):
     bError=False
-    indH = assert_seltxt(ref, Hseltxt)
-    indX = assert_seltxt(ref, Xseltxt)
-    if len(indH) == 0:
+    indH = mol.topology.select(Hseltxt)
+    indX = mol.topology.select(Xseltxt)
+    numH = len(indH) ; numX = len(numX)
+    if numH == 0:
         bError=True
         t1 = mol.topology.select('name H')
         t2 = mol.topology.select('name HN')
         t3 = mol.topology.select('name HA')
-        print "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3)
-    if len(indX) == 0:
+        print "    .... ERROR: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3)
+    if numX == 0:
         bError=True
         t1 = mol.topology.select('name N')
         t2 = mol.topology.select('name NT')
-        print "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2)
+        print "    .... ERROR: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2)
+
+    resH = [ mol.topology.atom(x).residue.resSeq for x in indH ]
+    resX = [ mol.topology.atom(x).residue.resSeq for x in indX ]
+    if resX != resH:
+        bError=True
+        print "    .... ERROR: The residue lists are not the name between the two selections:"
+        print "    .... Count for X (%i)" % numX, resX
+        print "    .... Count for H (%i)" % numH, resH
     if bError:
         sys.exit(1)
-    return indH, indX
+
+    return indH, indX, resX
+
+def extract_vectors_from_structure( pdbFile, Hseltxt='name H', Xsel='name N and not resname PRO', trjFile=None ):
+
+    print "= = = Using vectors as found directly in the coordinate files, via MDTraj module."
+    print "= = = NOTE: no fitting is conducted."
+    import mdtraj as md
+
+    if not trjFile is None:
+        mol = md.load(trjFile, top=pdbFile)
+        print "= = = PDB file %s and trajectory file %s loaded." % (pdbFile, trjFile)
+
+    else:
+        omol = md.load(pdbFile)
+        print "= = = PDB file %s loaded." % pdbFile
+
+    indH, indX, resXH = confirm_seltxt(ref, Hsel, Xsel)
+
+    # Extract submatrix of vector trajectory
+    vecXH = np.take(mol.xyz, indH, axis=1) - np.take(mol.xyz, indX, axis=1)
+    vecXH = qs.vecnorm_NDarray(vecXH, axis=2)
+
+    # = = = Check shape and switch to match.
+    if vecXH.shape[0] == 1:
+        return resXH, vecXH[0]
+    else:
+        return resXH, np.swapaxes(vecXH,0,1)
 
 def sanity_check_two_list(listA, listB, string, bVerbose=False):
     if not np.all( np.equal(listA, listB) ):
@@ -85,18 +121,20 @@ def _obtain_Jomega(RObj, nSites, S2, consts, taus, vecXH, weights=None):
     return []
 
 
-def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None):
+def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None, CSAvaluesArray=None):
     """
     The inputs vectors have dimensions (nSites, nSamples, 3) or just (nSites, 3)
     the datablock being returned has dimensions:
     - ( 4, nSites)    of there is no uncertainty calculations. 4 corresponding each to R1, R2, NOE, and rho.
     - ( 4, nSites, 2) if there is uncertainty calculations.
     """
+    if CSAvaluesArray is None:
+        CSAvaluesArray = np.repeat(CSAvaluesArray, nSites)
     if RObj.rotdifModel.name == 'direct_transform':
         datablock=np.zeros((4,nSites), dtype=np.float32)
         for i in range(nSites):
             J = sd.J_direct_transform(RObj.omega, consts[i], taus[i])
-            R1, R2, NOE = RObj.get_relax_from_J( J )
+            R1, R2, NOE = RObj.get_relax_from_J( J, CSAvalue=CSAvaluesArray[i] )
             rho = RObj.get_rho_from_J( J )
             datablock[:,i]=[R1,R2,NOE,rho]
         return datablock
@@ -104,7 +142,7 @@ def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None):
         datablock=np.zeros((4,nSites), dtype=np.float32)
         for i in range(nSites):
             J = sd.J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
-            R1, R2, NOE = RObj.get_relax_from_J( J )
+            R1, R2, NOE = RObj.get_relax_from_J( J, CSAvalue=CSAvaluesArray[i] )
             rho = RObj.get_rho_from_J( J )
             datablock[:,i]=[R1,R2,NOE,rho]
         return datablock
@@ -119,7 +157,7 @@ def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None):
             for i in range(nSites):
                 Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdifModel.D[0], RObj.rotdifModel.D[1], S2[i], consts[i], taus[i])
                 # = = = Calculate relaxation values from the entire sample of vectors before any averagins is to be done
-                tmpR1, tmpR2, tmpNOE = RObj.get_relax_from_J_simd( Jmat )
+                tmpR1, tmpR2, tmpNOE = RObj.get_relax_from_J_simd( Jmat, CSAvalue=CSAvaluesArray[i] )
                 tmprho = RObj.get_rho_from_J_simd( Jmat )
                 #for j in range(npts):
                 #    tmpR1[j], tmpR2[j], tmpNOE[j] = RObj.get_relax_from_J( Jmat[j] )
@@ -142,7 +180,7 @@ def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None):
                 Jmat = sd.J_combine_symmtop_exp_decayN(RObj.omega, vecXH[i], RObj.rotdifModel.D[0], RObj.rotdifModel.D[1], S2[i], consts[i], taus[i])
                 if len(Jmat.shape) == 1:
                     # A single vector was given.
-                    R1, R2, NOE = RObj.get_relax_from_J( Jmat )
+                    R1, R2, NOE = RObj.get_relax_from_J( Jmat, CSAvalue=CSAvaluesArray[i] )
                     rho = RObj.get_rho_from_J( Jmat )
                 datablock[:,i]=[R1,R2,NOE,rho]
             return datablock
@@ -202,13 +240,13 @@ def optfunc_R1R2NOE_DisoS2(params, *args):
     Diso=params[0] ; S2s=params[1]
     robj=args[0]
     nvecs=args[1] ; S2=args[2] ; consts=args[3] ; taus=args[4]
-    vecxh=args[5] ; w=args[6]
+    vecxh=args[5] ; w=args[6] ; CSAarray=args[7]
     expblock=args[-1]
     robj.rotdifModel.change_Diso( Diso )
     S2loc  = [ S2s*k for k in S2 ]
     consts_loc = [ [ S2s*k for k in j] for j in consts ]
     #print "...Scaling:", consts[0][0], consts_loc[0][0]
-    datablock = _obtain_R1R2NOErho( robj, nvecs, S2loc, consts_loc, taus, vecxh, weights=w)
+    datablock = _obtain_R1R2NOErho( robj, nvecs, S2loc, consts_loc, taus, vecxh, weights=w, CSAvaluesArray = CSAarray )
     chisq = optfunc_R1R2NOE_inner(datablock[0:3,...], expblock)
     print "= = optimisations params( %s ) returns chi^2 %g" % (params, chisq)
     return chisq
@@ -218,10 +256,10 @@ def optfunc_R1R2NOE_Diso(params, *args):
     Diso=params[0]
     RObj=args[0]
     nvecs=args[1] ; S2=args[2] ; consts=args[3] ; taus=args[4]
-    vecXH=args[5] ; w=args[6]
+    vecXH=args[5] ; w=args[6] ; CSAarray=args[7]
     expblock=args[-1]
     RObj.rotdifModel.change_Diso( Diso )
-    datablock = _obtain_R1R2NOErho( RObj, nvecs, S2, consts, taus, vecXH, weights=w)
+    datablock = _obtain_R1R2NOErho( RObj, nvecs, S2, consts, taus, vecXH, weights=w, CSAvaluesArray = CSAarray )
     chisq = optfunc_R1R2NOE_inner(datablock[0:3,...], expblock)
     print "= = Optimisations params( %s ) returns Chi^2 %g" % (params, chisq)
     return chisq
@@ -403,22 +441,26 @@ if __name__ == '__main__':
                         help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
-    parser.add_argument('-v','--vecfn', type=str, dest='vecfn', default='none',
+    parser.add_argument('-v','--vecfn', type=str, dest='vecfn', default=None,
                         help='Average vector orientations of the nuclei, e.g. N-H in a protein.'
                              'Without an accompanying quaternion, this is assumed to be in the principal axes frame.')
-    parser.add_argument('--distfn', type=str, dest='distfn', default='none',
+    parser.add_argument('--distfn', type=str, dest='distfn', default=None,
                         help='Vector orientation distribution of the X-H dipole, in a spherical-polar coordinates.'
                              'Without an accompanying quaternion, this is assumed to be in the principal axes frame.')
     parser.add_argument('--shiftres', type=int, default=0,
                         help='Shift the MD residue indices, e.g., to match the experiment.')
-    parser.add_argument('-e','--expfn', type=str, dest='expfn', default='none',
+    parser.add_argument('-e','--expfn', type=str, dest='expfn', default=None,
                         help='Experimental values of R1, R2, and NOE in a 4- or 7-column format.'
                              '4-column data is assumed to be ResID/R1/R2/NOE. 7-column data is assumed to also have errors.'
                              'Giving this file currently will compute the rho equivalent and quit, unless --opt is also given.')
-    parser.add_argument('--ref', type=str, dest='reffn', default='none',
+    parser.add_argument('--ref', type=str, dest='reffn', default=None,
                         help='Reference PDB file for an input trajectory to determine distribution of X-H vectors.'
                              'WARNING: not yet implemented.')
-    parser.add_argument('--traj', type=str, dest='trjfn', default='none',
+    parser.add_argument('--refHsel', type=str, default='name H',
+                        help='MDTraj selection syntax to extract the H-atoms.')
+    parser.add_argument('--refXsel', type=str, default='name N and not resname PRO',
+                        help='MDTraj selection syntax to extract the heavy atoms.')
+    parser.add_argument('--traj', type=str, dest='trjfn', default=None,
                         help='Input trajectory from which X-H vector distributions will be read.')
     parser.add_argument('-q', '--q_rot', type=str, dest='qrot_str', default='',
                         help='Rotation quaternion from the lab frame of the vectors into the PAF, where D is diagonalised.'
@@ -448,9 +490,11 @@ if __name__ == '__main__':
                         help='Input optional manual zeta factor to scale-down'
                              'the S^2 of MD-based derivations by zero-point vibrations known in QM.'
                              'This is by convention 0.890023 (1.02/1.04)^6 - see Trbovic et al., Proteins, 2008 and Case, J Biomol NMR, 1999.')
-    parser.add_argument('--csa', type=float, default=np.nan,
-                        help='Input manual average CSA value, if different from the assumed value, e.g. -170 ppm for 15N')
-    parser.add_argument('--opt', type=str, default='none',
+    parser.add_argument('--csa', type=str, default=None,
+                        help='Input manual average CSA value, if different from the assumed value, e.g. -170 ppm for 15N.'
+                             'Residue-specific variations is set if a file name is given. This file should '
+                             'specify on each line the residue index and then its respective CSA value.')
+    parser.add_argument('--opt', '--fit', type=str, default=None,
                         help='Optimise over one or two parameters that perturb the systematic baseline of R1/R2/NOE:'
                              'the chemical-shift anisotropy of the heavy nucleus (15N), and the global tumbling.'
                              'This will treat the input D_iso as an initial estimate.'
@@ -465,7 +509,10 @@ if __name__ == '__main__':
     fittedCt_file = args.in_Ct_fn
     out_pref=args.out_pref
     bHaveDy = False
-    if args.opt != 'none':
+    if not args.opt is None:
+        if args.expfn is None:
+            print >> sys.stderr, "= = = ERROR: Cannot conduct optimisation without a target experimental scattering file! (Missing --expfn )"
+            sys.exit(1)
         bOptPars = True
         optMode = args.opt
     else:
@@ -493,17 +540,9 @@ if __name__ == '__main__':
     relax_obj.print_freq_order()
     print relax_obj.omega
     print "= = = Gamma values: (X) %g , (H) %g" % (relax_obj.gX.gamma, relax_obj.gH.gamma)
-    if np.isnan(args.csa):
-        print "= = = Using default CSA value: %g" % relax_obj.gX.csa
-    else:
-        tmp=args.csa
-        if (np.fabs(tmp)>1):
-            tmp*=1e-6
-        relax_obj.gX.csa=tmp
-        print "= = = Using input CSA value: %g" % relax_obj.gX.csa
 
     #Check if the experimental file is given
-    if args.expfn != 'none':
+    if not args.expfn is None:
         print "= = = Experimental relaxation parameters given."
         # New code. Take into account holes in data and multiple fields
         # Where holes are, put False in the Truth Matrix
@@ -595,48 +634,38 @@ if __name__ == '__main__':
             bQuatRot = False
 
         # Read the source of vectors.
-        bHaveVec = False ; bHaveVDist = False ; bHaveTraj = False
-        if args.vecfn != 'none':
+        bHaveVec = False ; bHaveVDist = False
+        if not args.vecfn is None:
             print "= = = Using average vectors. Reading X-H vectors from %s ..." % args.vecfn
             resNH, vecXH = gs.load_xys(args.vecfn, dtype=float32)
-            if bQuatRot:
-                print "    ....rotating input vectors into PAF frame using q_rot."
-                vecXH = qs.rotate_vector_simd(vecXH, q_rot)
-                #for i in range(len(vecXH)):
-                #    vecXH[i] = qops.rotate_vector(vecXH[i], q_rot)
-            print "    ....X-H vector input processing completed."
             bHaveVec = True
-        elif args.distfn != 'none':
+        elif not args.distfn is None:
             print "= = = Using vector distribution in spherical coordinates. Reading X-H vector distribution from %s ..." % args.distfn
             resNH, vecXH, vecXHweights = read_vector_distribution_from_file( args.distfn )
-
             resNH = [ int(x)+args.shiftres for x in resNH ]
-
-            if bQuatRot:
-                print "    ....rotating input vectors into PAF frame using q_rot."
-                for i in range(len(vecXH)):
-                    vecXH[i] = qs.rotate_vector_simd(vecXH[i], q_rot)
-                #shape = vecXH.shape
-                #for i in range(shape[0]):
-                #    for j in range(shape[1]):
-                #        vecXH[i][j] = qops.rotate_vector(vecXH[i][j], q_rot)
-            print "    ....X-H vector distribution input processing completed."
             bHaveVDist = True
             bHaveDy = True ;# We have an ensemble of vectors now.
-        elif args.trjfn != 'none' and args.reffn != 'none' :
+
+        elif not args.reffn is None:
             # WARNING: not implemented
-            import mdtraj as md
-            print "= = = Using distribution of vectors from trajectory. Reading reference file %s ..." % args.reffn
-            reffile = md.load(args.reffn)
-            tmpH, tmpX = confirm_seltxt(ref, Hseltxt, Xseltxt)
-            trjfile = md.load(args.trjfn, top=args.reffn)
-            print "= = = trajectory file %s loaded." % args.trjfn
-            bHaveTraj = True
-            bHaveDy = True
+            resNH, vecXH = extract_vectors_from_structure( \
+                pdbFile=args.reffn, trjFile=args.trjfn, Hsel = args.refHsel, Xsel = args.refXsel )
+            resNH = [ int(x)+args.shiftres for x in resNH ]
+            if len(vecXH.shape) == 3:
+                bHaveVDist = True
+                bHaveDy = True
+
         elif not args.bRigid:
             print >> sys.stderr, "= = = ERROR: non-spherical diffusion models require a vector source!" \
                                     "Please supply the average vectors or a trajectory and reference!"
             sys.exit(1)
+
+        if bHaveVec or bHaveVDist:
+            print "= = = Note: the shape of the X-H vector distribution is:", vecXH.shape
+            if bQuatRot:
+                print "    ....rotating input vectors into PAF frame using q_rot."
+                vecXH = qs.rotate_vector_simd(vecXH, q_rot)
+                print "    ....X-H vector input processing completed."
 
 # = = = Now that the basic stats habe been stored, check for --rigid shortcut.
 #       This shortcut will exit after this if statement is run.
@@ -657,13 +686,58 @@ if __name__ == '__main__':
         print "R2:",  str(datablock[1]).strip('[]')
         print "NOE:", str(datablock[2]).strip('[]')
         sys.exit()
+# = = = End shortcut.
 
 # = = = Read fitted C(t). For each residue, we expect a set of parameters
 #       corresponding to S2 and the other parameters.
     sim_resid, param_names, param_vals = read_fittedCt_file(fittedCt_file)
     num_vecs = len(sim_resid)
     if diff_type == 'symmtop' or diff_type == 'anisotropic':
-        sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct versus vectors")
+        sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct -versus- vectors as defined in anisotropy")
+
+# = = = Section interpreting CSA input, check if it a custom single value for backwards compatibility, or an actual file.
+    CSAvaluesArray = None
+    if args.csa is None:
+        print "= = = Using default CSA value: %g" % relax_obj.gX.csa
+        CSAvaluesArray = np.repeat( relax_obj.gX.csa, num_vecs )
+    else:
+        # = = = Check is it is a numeric input and/or a file. File takes precedence.
+        try:
+            fp = open(args.csa, 'r')
+            fp.close()
+            bFileFound=True
+        except:
+            bFileFound=False
+
+        try:
+            tmp=float(args.csa)
+            bIsNumeric=True
+        except ValueError:
+            bIsNumeric=False
+
+        if bFileFound:
+            # = = = Fist check that we're not optimising with CSA.
+            if bOptPars and 'CSA' in optMode:
+                print >> sys.stderr, "= = = ERROR: Not currently allowing CSA optimisations when a customised CSA file is given."
+                sys.exit(1)
+
+            residCSA, CSAvaluesArray = gs.load_xy( args.csa )
+            relax_obj.gX.csa = np.nan
+            print "= = = Using input CSA values from file %s - please ensure that the resid definitions are identical to the other files." % args.csa
+            sanity_check_two_list(sim_resid, residCSA, "resid from fitted_Ct -versus- as defined in CSA file ")
+            if np.fabs(CSAvaluesArray[0]) > 1.0:
+                print "= = = NOTE: the first value is > 1.0, so assume a necessary conversion to ppm."
+                CSAvaluesArray *= 1e-6
+        elif bIsNumeric:
+            print "= = = Using user-input CSA value: %g" % tmp
+            relax_obj.gX.csa=tmp
+            if np.fabs(tmp)>1.0:
+                print "= = = NOTE: this value is > 1.0, so assume a necessary conversion to ppm."
+                relax_obj.gX.csa*=1e-6
+            CSAvaluesArray = np.repeat( relax_obj.gX.csa, num_vecs )
+        else:
+            print >> sys.stderr, "= = = ERROR at parsing the --csa argument!"
+            sys.exit(1)
 
     S2_list=[] ; taus_list=[] ; consts_list=[]
     for i in range(num_vecs):
@@ -682,10 +756,11 @@ if __name__ == '__main__':
     optHeader=''
     #relax_obj.rotdif_model.change_Diso( Diso )
     if not bOptPars:
+
         if bJomega:
             datablock = _obtain_Jomega(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
         else:
-            datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
+            datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights, CSAvaluesArray = CSAvaluesArray )
 
         optHeader=print_fitting_params_headers(names=param_names,
                   values=np.multiply(param_scaling, (Diso, 1.0, relax_obj.gX.csa, 0.0)),
@@ -731,7 +806,8 @@ if __name__ == '__main__':
         # = = = Do global scan of Diso = = =
         bDoGlobalScan = False
         if bDoGlobalScan:
-            Diso_init = do_global_scan_Diso( Diso, step=1.05, smin=-10, smax=10, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock) )
+            Diso_init = do_global_scan_Diso( Diso, step=1.05, smin=-10, smax=10, \
+                args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, CSAvaluesArray, expblock) )
         else:
             Diso_init = Diso
 
@@ -743,7 +819,8 @@ if __name__ == '__main__':
                            [-np.sqrt(2.0/3.0), np.sqrt(1.0/6.0), np.sqrt(1.0/6.0)],
                            [                0, np.sqrt(1.0/2.0),-np.sqrt(1.0/2.0)]])
             d_init=np.multiply(0.1*dmat, p_init)
-            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2CSA, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
+            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2CSA, x0=p_init, direc=d_init, \
+                args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
             print fminOut
             Diso_opt=fminOut[0][0]
             S2s_opt  =fminOut[0][1]
@@ -761,7 +838,8 @@ if __name__ == '__main__':
             p_init=( Diso_init, relax_obj.gX.csa )
             # The directions are set like this because CSA and Diso compensate for each other's effects.
             d_init=( (0.1*p_init[0], 0.1*p_init[1]), (0.1*p_init[0], -0.1*p_init[1]) )
-            fminOut=fmin_powell( optfunc_R1R2NOE_DisoCSA, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
+            fminOut=fmin_powell( optfunc_R1R2NOE_DisoCSA, x0=p_init, direc=d_init, \
+                args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
             print fminOut
             csa_opt=fminOut[0][1]
             Diso_opt=fminOut[0][0]
@@ -776,7 +854,8 @@ if __name__ == '__main__':
             p_init=( Diso_init, 1.0 )
             d_init=( (0.1*p_init[0], 0.1*p_init[1]), (0.1*p_init[0], -0.1*p_init[1]) )
             # The directions are set like this because S2 and Diso compensate for each other's effects.
-            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
+            fminOut=fmin_powell( optfunc_R1R2NOE_DisoS2, x0=p_init, direc=d_init, \
+                args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, CSAvaluesArray, expblock), full_output=True )
             print fminOut
             S2s_opt=fminOut[0][1]
             Diso_opt=fminOut[0][0]
@@ -793,7 +872,8 @@ if __name__ == '__main__':
             p_init=Diso_init
             # The directions are set like this because CSA and Diso compensate for each other's effects.
             d_init=[0.1*Diso_init]
-            fminOut=fmin_powell(optfunc_R1R2NOE_Diso, x0=p_init, direc=d_init, args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, expblock), full_output=True )
+            fminOut=fmin_powell(optfunc_R1R2NOE_Diso, x0=p_init, direc=d_init, \
+                args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, CSAvaluesArray, expblock), full_output=True )
             print fminOut
             Diso_opt=fminOut[0]
             chisq=fminOut[1]
@@ -806,7 +886,7 @@ if __name__ == '__main__':
             print >> sys.stderr, "= = Invalid optimisation mode!"
             sys.exit(1)
 
-        datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
+        datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights, CSAvaluesArray = CSAvaluesArray )
 
     print " = = Completed Relaxation calculations."
 
