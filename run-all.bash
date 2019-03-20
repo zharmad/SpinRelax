@@ -315,7 +315,7 @@ for path in $foldlist ; do
             echo "= = = Manually set time-step between frames of $sxtc_loc to $xtc_step ps."
         fi
         echo "= = = Running PLUMED..."
-        $plumed driver --ixtc $sxtc_loc --plumed $pfile_loc --timestep $xtc_step 2>&1 | tee plumed.log
+        $plumed driver --mf_xtc $sxtc_loc --plumed $pfile_loc --timestep $xtc_step 2>&1 | tee plumed.log
         echo "= = = PLUMED has been run to generate $qfile_loc, with output in plumed.log"
         assert_file $qfile_loc
     else
