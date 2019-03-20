@@ -188,8 +188,8 @@ parser.add_argument('--xlabel', type=str, default='Residue index',
                     help='Cosmetic X-label')
 parser.add_argument('--sequence', type=str, default=None,
                     help='Cosmetic switch of tick labelling from numbers to a given sequence. Given as a list or a single string.')
-parser.add_argument('--xshift', type=float, default=1.0,
-                    help='Shifting of x-range numbering from the standard 0-based python indices, for use with custom sequence labels.')
+parser.add_argument('--xshift', type=float, default=None,
+                    help='Shift x-range numbering system. When custom sequence labels are given, this determine the position of the first residue.')
 parser.add_argument('--title', type=str, default=None,
                     help='Cosmetic Figure title')
 
@@ -240,6 +240,8 @@ S2slow = []
 S2fast = []
 for p in paramList:
     resid = float(p.name)
+    if args.sequence is None and not args.xshift is None:
+        resid += float(args.xshift)
 
     tmpS2s = p.S2_slow if p.S2_slow != None else 0.0
     tmpS2f = p.S2_fast if p.S2_fast != None else 0.0
@@ -306,6 +308,8 @@ ax2.set_ylabel('tau-components [%s]' % timeUnits)
 
 if xMin != None or xMax != None:
     ax2.set_xlim( _update_range_if_given( ax2.get_xlim(), xMin, xMax ) )
+else:
+    xMin, xMax = ax2.get_xlim()
 
 if tauMin != None or tauMax != None:
     ax2.set_ylim( _update_range_if_given( ax2.get_ylim(), tauMin, tauMax ) )
@@ -350,6 +354,9 @@ if args.sequence == None:
             a.set_xticks( np.arange(_int_round(xMin,5, True),xMax,5), minor=True )
             a.set_xticks( np.arange(_int_round(xMin,20, True),xMax,20) )
 else:
+    if args.xshift is None:
+        args.xshift=1.0
+
     l=args.sequence.split()
     if len(l)==1:
         # = = = single string processing.
