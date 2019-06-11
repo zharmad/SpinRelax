@@ -305,6 +305,7 @@ for path in $foldlist ; do
         fi
         assert_file $sxtc_loc $pfile_loc $refpdb_loc
         if [[ "$xtc_step" == "" ]] ; then
+            echo "= = = NB: Using GROMACS to try to detect time steps in xtc. This can be slow, so consider using -xtc_step to skip this step."
             xtc_step=$($gcheck -f $sxtc_loc 2>&1 | grep Step | awk '{print $NF}')
             if [[ "$xtc_step" == "" ]] ; then
                 echo "= = ERROR in GROMACS gmxcheck looking for the time period between successive trajectory frames. Consider setting -xtc_step manually."
