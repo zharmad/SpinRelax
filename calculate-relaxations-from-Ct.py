@@ -752,7 +752,7 @@ if __name__ == '__main__':
     # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
     param_names=("Diso", "zeta", "CSA", "chi")
     param_scaling=( 1.0, zeta, 1.0e6, 1.0 )
-    param_units=(relax_obj.timeUnit, "a.u.", "ppm", "a.u." )
+    param_units=(relax_obj.timeUnit+"^-1", "a.u.", "ppm", "a.u." )
     optHeader=''
     #relax_obj.rotdif_model.change_Diso( Diso )
     if not bOptPars:
