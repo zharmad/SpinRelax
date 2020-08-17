@@ -5,7 +5,7 @@ from scipy.optimize import curve_fit
 import mdtraj as md
 import general_scripts as gs
 import general_maths as gm
-import transforms3d.quaternions as q_ops
+#import transforms3d.quaternions as q_ops
 import transforms3d_supplement as qs
 try:
     import psutil
@@ -321,7 +321,7 @@ if __name__ == '__main__':
     parser.add_argument('-s', type=str, dest='topfn', required=True, nargs='+',
                         help='Suitable topology PDB file for use in the MDTraj module.'
                              'This file is used as the reference frame for fits. If multiple are given, one refpdb will be loaded for each trajectory.')
-    parser.add_argument('-f', '--infn', type=str, dest='infn', nargs='+',
+    parser.add_argument('-f', '--infn', type=str, dest='infn', required=True, nargs='+',
                         help='One or more trajectories. Data from multiple trajectories will be analysed separately'
                              'in C(t)-calculations, but otherwise aggregated.' )
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
@@ -384,7 +384,8 @@ if __name__ == '__main__':
     if args.vecRotQ!='':
         bRotVec=True
         q_rot = np.array( [ float(v) for v in args.vecRotQ.split() ] )
-        if len(q_rot) != 4 or not q_ops.qisunit(q_rot):
+        if len(q_rot) != 4 or np.allclose(np.dot(q,q), 1):
+        #if len(q_rot) != 4 or not q_ops.qisunit(q_rot):
             print "= = = ERROR: input rotation quaternion is malformed!", q_rot
             sys.exit(23)
     else:
