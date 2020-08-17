@@ -61,8 +61,9 @@ def obtain_XHres(traj, seltxt):
     resXH = [ traj.topology.atom(indexH[i]).residue.resSeq for i in range(len(indexH)) ]
     return resXH
 
-def obtain_XHvecs(traj, Hseltxt, Xseltxt):
-    print "= = = Obtaining XH-vectors from trajectory..."
+def obtain_XHvecs(traj, Hseltxt, Xseltxt, bSuppressPrint = False):
+    if not bSuppressPrint:
+        print "= = = Obtaining XH-vectors from trajectory..."
     #nFrames= traj.n_frames
     indexX = traj.topology.select(Xseltxt)
     indexH = traj.topology.select(Hseltxt)
@@ -431,22 +432,55 @@ if __name__ == '__main__':
             print "= = = Loaded reference file %i: %s" % (i, top_filename)
             fit_indices = get_indices_mdtraj( top=ref.topology, filename=top_filename, seltxt=fittxt)
             print "= = = Debug: fit_indices number: %i" % len(fit_indices)
-        trj = md.load(in_flist[i], top=top_filename)
-        print "= = = Loaded trajectory file %s - it has %i atoms and %i frames." % (in_flist[i], trj.n_atoms, trj.n_frames)
-        # = = Run sanity check
-        tmpH, tmpX = confirm_seltxt(trj, Hseltxt, Xseltxt)
-        deltaT_loc = trj.timestep ; nFrames_loc = trj.n_frames
-        resXH_loc  = obtain_XHres(trj, Hseltxt)
-        vecXH_loc  = obtain_XHvecs(trj, Hseltxt, Xseltxt)
-        trj.center_coordinates()
-        print "= = DEBUG: Fitted indices are ", fit_indices
-        trj.superpose(ref, frame=0, atom_indices=fit_indices )
-        print "= = = Molecule centered and fitted."
-        #msds = md.rmsd(trj, ref, 0, precentered=True)
-        vecXHfit_loc = obtain_XHvecs(trj, Hseltxt, Xseltxt)
-        nBonds_loc  = vecXH_loc.shape[1]
 
-        del trj
+        fileSizeMB = os.path.getsize(in_flist[i])/1048576.0
+        fileSizeSwitch = 1024
+        if fileSizeMB > fileSizeSwitch:
+            # = = = Single-step load can prove too memory intensive with large trajectories...
+            print "= = = Detected that trajectory file %s is larger than %i MB. Will attempt to load in chunks." % (in_flist[i], fileSizeSwitch)
+            nFrames_loc = 0
+            for trjChunk in md.iterload(in_flist[i], chunk=1000, top=top_filename):
+                tempV  = obtain_XHvecs(trjChunk, Hseltxt, Xseltxt, bSuppressPrint=True)
+                trjChunk.center_coordinates()
+                trjChunk.superpose(ref, frame=0, atom_indices=fit_indices )
+                tempV2 = obtain_XHvecs(trjChunk, Hseltxt, Xseltxt, bSuppressPrint=True)
+                if nFrames_loc == 0:
+                    confirm_seltxt(trjChunk, Hseltxt, Xseltxt)
+                    resXH_loc  = obtain_XHres(trjChunk, Hseltxt)
+                    deltaT_loc = trjChunk.timestep
+                    nFrames_loc = trjChunk.n_frames
+                    vecXH_loc = tempV
+                    vecXHfit_loc = tempV2
+                else:
+                    nFrames_loc += trjChunk.n_frames
+                    vecXH_loc    = np.concatenate( (vecXH_loc, tempV), axis=0 )
+                    vecXHfit_loc = np.concatenate( (vecXHfit_loc, tempV2), axis=0 )
+
+                print "= = = ...loaded %i frames so far." % (nFrames_loc)
+
+            print "= = = Finished loading trajectory file %s." % (in_flist[i])
+            print vecXHfit_loc.shape
+            nBonds_loc  = vecXH_loc.shape[1]
+
+        else:
+            # = = = Old single-step load.
+            print "= = = Detected that trajectory file %s is smaller than %i MB. Will attempt to load all at once." % (in_flist[i], fileSizeSwitch)
+            trj = md.load(in_flist[i], top=top_filename)
+            print "= = = File loaded - it has %i atoms and %i frames." % (trj.n_atoms, trj.n_frames)
+            # = = Run sanity check
+            confirm_seltxt(trj, Hseltxt, Xseltxt)
+            deltaT_loc = trj.timestep ; nFrames_loc = trj.n_frames
+            resXH_loc  = obtain_XHres(trj, Hseltxt)
+            vecXH_loc  = obtain_XHvecs(trj, Hseltxt, Xseltxt)
+
+            trj.center_coordinates()
+            trj.superpose(ref, frame=0, atom_indices=fit_indices )
+            print "= = = Molecule centered and fitted."
+            #msds = md.rmsd(trj, ref, 0, precentered=True)
+            vecXHfit_loc = obtain_XHvecs(trj, Hseltxt, Xseltxt)
+            nBonds_loc  = vecXH_loc.shape[1]
+
+            del trj
 
         if deltaT > 0.5*tau_memory:
             print >> sys.stderr, "= = = ERROR: delta-t form the trajectory is too small relative to tau! %g vs. %g" % (deltaT, tau_memory)
