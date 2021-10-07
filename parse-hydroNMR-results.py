@@ -9,38 +9,38 @@ def reorder_axes( D, mat ):
     if D[0]<=D[1]<=D[2]:
         return D, mat
     if D[0]<=D[2]<D[1]:
-        print "    ...rotate X by 90-degrees."
+        print( "    ...rotate X by 90-degrees." )
         rot=np.array([[ 1., 0., 0.],\
                       [ 0., 0.,-1.],\
                       [ 0., 1., 0.]])
         return np.array([D[0],D[2],D[1]]), np.matmul(rot,mat)
     if D[2]<=D[1]<=D[0]:
-        print "    ...rotate Y by 90-degrees."
+        print( "    ...rotate Y by 90-degrees." )
         rot=np.array([[ 0., 0., 1.],\
                       [ 0., 1., 0.],\
                       [-1., 0., 0.]])
         return np.array([D[2],D[1],D[0]]), np.matmul(rot,mat)
     if D[1]<D[0]<D[2]:
-        print "    ...rotate Z by 90-degrees."
+        print( "    ...rotate Z by 90-degrees." )
         rot=np.array([[ 0.,-1., 0.],\
                       [ 1., 0., 0.],\
                       [ 0., 0., 1.]])
         return np.array([D[1],D[0],D[2]]), np.matmul(rot,mat)
     if D[1]<D[2]<D[0]:
-        print "    ...forward permutation."
+        print( "    ...forward permutation." )
         rot=np.array([[ 0., 0., 1.],\
                       [ 1., 0., 0.],\
                       [ 0., 1., 0.]])
         return np.array([D[1],D[2],D[0]]), np.matmul(rot,mat)
     if D[2]<D[0]<D[1]:
-        print "    ...backward permutation."
+        print( "    ...backward permutation." )
         rot=np.array([[ 0., 1., 0.],\
                       [ 0., 0., 1.],\
                       [ 1., 0., 0.]])
         return np.array([D[2],D[0],D[1]]), np.matmul(rot,mat)
     # = = = ERROR section
-    print >> sys.stderr, "= = = ERROR in reorder axes, the ordering if statements somehow did not accoutn for the following combination!"
-    print >> sys.stderr, D
+    print( "= = = ERROR in reorder axes, the ordering if statements somehow did not accoutn for the following combination!", file=sys.stderr )
+    print( D, file=sys.stderr )
     sys.exit(1)
 
 def read_hydronmr_results( fileName ):
@@ -72,24 +72,24 @@ def read_hydronmr_results( fileName ):
         diffValues[id] = l[1]
         diffMatrix[id] = ( l[-3],l[-2],l[-1] )
 
-    print "= = = HYDRONMR diffusion tensor value (s^-1): %g %g %g" % (diffValues[0], diffValues[1], diffValues[2])
-    print "= = = HYDRONMR rotation matrix:"
+    print( "= = = HYDRONMR diffusion tensor value (s^-1): %g %g %g" % (diffValues[0], diffValues[1], diffValues[2]) )
+    print( "= = = HYDRONMR rotation matrix:" )
     for i in range(3):
-        print "%16g %16g %16g" % (diffMatrix[i,0], diffMatrix[i,1], diffMatrix[i,2])
+        print( "%16g %16g %16g" % (diffMatrix[i,0], diffMatrix[i,1], diffMatrix[i,2]) )
 
 
     # = = = Check if HYDRONMR has swapped Dx and Dy. If so, rotate z-axis by 90 degrees after transform to PAF
     diffValues, diffMatrix = reorder_axes( diffValues, diffMatrix)
 
     for i in range(3):
-        print np.linalg.norm(diffMatrix[i])
+        print( np.linalg.norm(diffMatrix[i]) )
         diffMatrix[i]=diffMatrix[i]/np.linalg.norm(diffMatrix[i])
 
     return diffValues, diffMatrix, pdbFile
 
 def translate_D( D ):
     """
-    Change from Dx,, Dy, Dz to D_iso, D_aniso, D_rhomb.
+    Change from Dx, Dy, Dz to D_iso, D_aniso, D_rhomb.
     """
     outD = np.zeros_like( D )
     outD[0] = np.mean(D)
@@ -125,48 +125,48 @@ if not args.pdb is None:
 DD = D*timeFactor
 Dp1 = translate_D( DD )
 Dp2 = translate_D( DD[::-1] )
-print "= = = Read the diffusion tensor value (s^-1): %g %g %g" % (D[0], D[1], D[2])
-print "= = = Translated into ps^-1: %g %g %g" % ( DD[0], DD[1], DD[2] )
-print "= = = Translated into axisymmetric-expansion  (long-axis): %g %g %g" % (Dp1[0], Dp1[1], Dp1[2])
-print "= = = Translated into axisymmetric-expansion (short-axis): %g %g %g" % (Dp2[0], Dp2[1], Dp2[2])
-print "= = = Rotation matrix:"
+print( "= = = Read the diffusion tensor value (s^-1): %g %g %g" % (D[0], D[1], D[2]) )
+print( "= = = Translated into ps^-1: %g %g %g" % ( DD[0], DD[1], DD[2] ) )
+print( "= = = Translated into axisymmetric-expansion  (long-axis): %g %g %g" % (Dp1[0], Dp1[1], Dp1[2]) )
+print( "= = = Translated into axisymmetric-expansion (short-axis): %g %g %g" % (Dp2[0], Dp2[1], Dp2[2]) )
+print( "= = = Rotation matrix:" )
 for i in range(mat.shape[0]):
-    print "%16g %16g %16g" % (mat[i,0], mat[i,1], mat[i,2])
+    print( "%16g %16g %16g" % (mat[i,0], mat[i,1], mat[i,2]) )
 
 try:
     import transforms3d.quaternions as qops
-    print "= = = Equivalent quaternion:"
+    print( "= = = Equivalent quaternion:" )
     q = qops.mat2quat( mat )
-    print "%g %g %g %g" % (q[0],q[1],q[2],q[3])
+    print( "%g %g %g %g" % (q[0],q[1],q[2],q[3]) )
 except:
     # = = = Do nothing.
-    print "= = = transforms3d not available. Will not report equivalent quaternion."
+    print( "= = = transforms3d not available. Will not report equivalent quaternion." )
 
 if not bRotate:
     sys.exit()
 
 # = = = Output D values to file.
 fp = open(pdbFile[:-4]+'.Dxyz','w')
-print >> fp, "%g %g %g" % ( DD[0], DD[1], DD[2] )
+print( "%g %g %g" % ( DD[0], DD[1], DD[2] ), file=fp )
 fp.close()
 
 fp = open(pdbFile[:-4]+'.Dsymm','w')
 if Dp1[2]<=1:
-    print >> fp, "%g %g %g" % (Dp1[0], Dp1[1], Dp1[2])
+    print( "%g %g %g" % (Dp1[0], Dp1[1], Dp1[2]), file=fp )
 else:
-    print >> fp, "%g %g %g" % (Dp2[0], Dp2[1], Dp2[2])
+    print( "%g %g %g" % (Dp2[0], Dp2[1], Dp2[2]), file=fp )
 fp.close()
 
 import mdtraj as md
 mol = md.load(pdbFile)
-print "= = = Loaded %s, rotating..." % pdbFile
+print( "= = = Loaded %s, rotating..." % pdbFile )
 # = = = Rotate molecule in place
 cog = np.average(mol.xyz[0],axis=0)
 rotatedXYZ = np.zeros_like(mol.xyz)
 rotatedXYZ[0] = np.matmul( mol.xyz[0]-cog, mat.T ) + cog
 mol.xyz = rotatedXYZ
 mol.save_pdb(outputPDB)
-print "= = = Done."
+print( "= = = Done." )
 
 
 

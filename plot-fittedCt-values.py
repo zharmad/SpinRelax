@@ -71,20 +71,20 @@ class fitParams:
                 self.add_transient_component(e[0], e[1])
         else:
             if len(consts) != len(taus):
-                print >> sys.stderr, "= = = ERROR in fitParams.add_transient_components: constants and taus lists do not have the same length!"
+                print( "= = = ERROR in fitParams.add_transient_components: constants and taus lists do not have the same length!", file=sys.stderr )
                 sys.exit(1)
             for c, t in zip(consts, taus):
                 self.add_transient_component(c, t)
 
     def report(self):
-        print "Name: %s" % self.name
+        print( "Name: %s" % self.name )
         if self.S2_fast != None:
-            print "  S2_fast: %g" % self.S2_fast
+            print( "  S2_fast: %g" % self.S2_fast )
         for i, s in enumerate(self.components):
-            print "  component %i , const.: %g " % (i, s[0])
-            print "  component %i , tau: %g " % (i, s[1])
+            print( "  component %i , const.: %g " % (i, s[0]) )
+            print( "  component %i , tau: %g " % (i, s[1]) )
         if self.S2_slow != None:
-            print "  S2_0: %g" % self_S2_slow
+            print( "  S2_0: %g" % self_S2_slow )
 
 def _get_key( index, var ):
     return str(index)+"-"+var
@@ -100,7 +100,7 @@ def read_fittedCt_parameters(fileName):
                 l = line.split()
                 if l[1].startswith("Residue"):
                     if bParamSection:
-                        print >> sys.stderr, "= = = ERROR in read_fittedCt_parameters: New parameter section detected when old parameter section is still being read! %s " % fileName
+                        print( "= = = ERROR in read_fittedCt_parameters: New parameter section detected when old parameter section is still being read! %s " % fileName, file=sys.stderr )
                         sys.exit(1)
                     bParamSection=True
                     # = = Mark beginning of parameters
@@ -115,11 +115,11 @@ def read_fittedCt_parameters(fileName):
                         S2_fast = value
                     elif parName.startswith("C_"):
                         tmpKey = _get_key(index, parName[2])
-                        #print tmpKey, value
+                        #print( tmpKey, value )
                         tmpC[tmpKey]=value
                     elif parName.startswith("tau_"):
                         tmpKey = _get_key(index, parName[4])
-                        #print tmpKey, value
+                        #print( tmpKey, value )
                         tmpTau[tmpKey]=value
                     else:
                         # = = Comment line not containing relevant parameters.
@@ -197,7 +197,7 @@ parser.add_argument('--title', type=str, default=None,
 args = parser.parse_args()
 bVerbose = args.bVerbose
 paramList = read_fittedCt_parameters(args.inFile)
-print "= = = Read %s and found %i sets of parameters." % (args.inFile, len(paramList))
+print( "= = = Read %s and found %i sets of parameters." % (args.inFile, len(paramList)) )
 
 timeUnits=args.tu
 sizeMin=args.smin
@@ -223,7 +223,7 @@ if args.cmap != 'custom':
     colorMap=plt.get_cmap(args.cmap)
 else:
     # = = = Not implemented by default. Please edit this segment as you wish. = = =
-    print "= = = Using custom color-mapping."
+    print( "= = = Using custom color-mapping." )
     colorMap
 
 if bVerbose:
@@ -231,7 +231,7 @@ if bVerbose:
         x.report()
 
 sumPoints = sum([ x.nComponents for x in paramList])
-print "= = = ..,with a total count of %i transient components." % sumPoints
+print( "= = = ..,with a total count of %i transient components." % sumPoints )
 
 posX=[]
 posY=[]
@@ -270,10 +270,10 @@ for p in paramList:
 S2slow = np.array( S2slow )
 S2fast = np.array( S2fast )
 points = np.array( points )
-print "= = Shape of the read data:", S2slow.shape, points.shape, S2fast.shape
+print( "= = Shape of the read data:", S2slow.shape, points.shape, S2fast.shape )
 residFirst=points[0,0]
 residLast =points[-1,0]
-print "= = First and last resid label read:", residFirst, residLast
+print( "= = First and last resid label read:", residFirst, residLast )
 
 # = = = = Ignore subplot if all components are 0.0 to prvent an empty plot.
 bPlotS2s = True if np.any(S2slow>0) else False

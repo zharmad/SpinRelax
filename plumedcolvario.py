@@ -49,25 +49,25 @@ def read_from_plumedprint(fname):
 
             # The default behaviour is now a data line.
             if not bHeaderRead:
-                print '= = ERROR: Data-like line encountered before a FIELDS definition! Line as follows:'
-                print line
+                print( '= = ERROR: Data-like line encountered before a FIELDS definition! Line as follows:' )
+                print( line )
                 return -1
             l = line.split()
             if len(l) != nfields:
-                print '= = ERROR: Data-like line does not have the same number of fields as defined in FIELDS!'
+                print( '= = ERROR: Data-like line does not have the same number of fields as defined in FIELDS!' )
                 return -1
             for i in range(len(l)):
                 parsed_data.append(np.float32(l[i]))
 
     #Add one to enumerate output, then remove counts for comments and empty lines
     ndata=ntot+1-ncomm-nempty
-    print '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i comment lines. ' % (fname, ndata, ncomm)
+    print( '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i comment lines. ' % (fname, ndata, ncomm) )
     if nempty > 0:
-        print '= = = NOTE: There are %i empty lines' % nempty
-    print '= = = %i field entries discovered. Field entries are as follows:' % nfields
+        print( '= = = NOTE: There are %i empty lines' % nempty )
+    print( '= = = %i field entries discovered. Field entries are as follows:' % nfields )
     for i in range(nfields):
-        print '%s '% field_names[i],
-    print ''
+        print( '%s '% field_names[i], )
+    print( '' )
 
     # Now reshape parsed_data to match the lines read and the total number of fields.
     parsed_data=np.reshape(parsed_data, (nfields,ndata), order='F')
@@ -111,12 +111,12 @@ def read_from_plumedprint_multi(fname):
 
             # The default behaviour is now a data line.
             if not bHeaderRead:
-                print '= = ERROR: Data-like line encountered before a FIELDS definition! Line as follows:'
-                print line
+                print( '= = ERROR: Data-like line encountered before a FIELDS definition! Line as follows:' )
+                print( line )
                 return -1
             l = line.split()
             if len(l) != nfields:
-                print '= = ERROR: Data-like line does not have the same number of fields as defined in FIELDS!'
+                print( '= = ERROR: Data-like line does not have the same number of fields as defined in FIELDS!' )
                 return -1
             floats=[float(x) for x in l]
             parsed_data.append(floats)
@@ -126,11 +126,11 @@ def read_from_plumedprint_multi(fname):
 
     #Add one to enumerate output, then remove counts for comments and empty lines
     ndata=ntot+1-ncomm-nempty
-    print '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i comment lines. ' % (fname, ndata, ncomm)
+    print( '= = Input file %s has been read: Found %i data-like lines in input plumed FES file, with %i comment lines. ' % (fname, ndata, ncomm) )
     if nempty > 0:
-        print '= = = NOTE: There are %i empty lines' % nempty
-    print '= = = %i * %i field entries discovered. Field entries are as follows:' % (nchunks, nfields)
-    print field_names
+        print( '= = = NOTE: There are %i empty lines' % nempty )
+    print( '= = = %i * %i field entries discovered. Field entries are as follows:' % (nchunks, nfields) )
+    print( field_names )
 
     # Now reshape parsed_data to match the lines read and the total number of fields.
     #parsed_data=np.reshape(parsed_data, (nfields,ndata), order='F')
@@ -142,26 +142,21 @@ def read_from_plumedprint_multi(fname):
 #
 # It is intended for bug-checking and hacking imitation PLUMED outputs from python.
 def write_to_plumedprint(fname, field_names, data):
-    # Surrogate print function, useful for things like mimicking HILLS files and others.
+    # Surrogate print( function, useful for things like mimicking HILLS files and others. )
 
     #Consistency checks first.
     shape=data.shape
     nfields=len(field_names)
     if shape[0] != nfields:
-        print '= = ERROR: in function write_to_plumedprint, the number of fields do not match between the input data (%i) and field lists (%i)!' % (shape[0], nfields)
+        print( '= = ERROR: in function write_to_plumedprint, the number of fields do not match between the input data (%i) and field lists (%i)!' % (shape[0], nfields) )
         return -1
 
     fp=open(fname,'w')
     # Input HEADER data.
-    print >> fp, '#! FIELDS ',
-    for i in range(len(field_names)):
-        print >> fp, '%s ' % field_names[i],
-    print >> fp, ''
+    print( "#! FIELDS "+" ".join(field_names), file=fp )
 
     for i in range(shape[1]):
-        for j in range(shape[0]):
-            print >> fp, ' %8f' % data[j][i],
-        print >> fp, ''
+        print( " ".join("%8f" % data[j][i] for j in range(shape[0])), file=fp )
     fp.close()
-    print '= = File %s has been written.' % fname
+    print( '= = File %s has been written.' % fname )
     return

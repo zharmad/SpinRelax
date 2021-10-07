@@ -8,6 +8,7 @@ from scipy.optimize import fmin_powell
 import transforms3d.quaternions as qops
 import transforms3d_supplement as qs
 import plumedcolvario as pl
+import general_scripts as gs
 import xvgio
 import dxio
 
@@ -39,9 +40,9 @@ def calculate_expectation_value_weighted(func, x, w):
         sig=sqrt( np.sum(np.multiply(np.square(val),w))/totw - avg**2 )
     else:
         sig=0.0
-        print "= = WARNING: In calculate-expectation value, a negative standard deviation is found: %g +- sqrt(%g)" % (avg, sigsq)
-        print "= = NOTES: totn: %i totw: %g" % (totn, totw)
-    #print totw, avg, sig
+        print( "= = WARNING: In calculate-expectation value, a negative standard deviation is found: %g +- sqrt(%g)" % (avg, sigsq) )
+        print( "= = NOTES: totn: %i totw: %g" % (totn, totw) )
+    #print( totw, avg, sig )
     return avg, sig
 
 def calculate_aniso_nosort(D):
@@ -85,7 +86,7 @@ def obtain_self_dq(q, delta):
     Vectorise { q^{-1}(t) q(t+delta) } over the range of q.
     Assumes that there are only two input dimensions q(N, 4) and returns dq(N-delta,4) with imaging to reduce rotations
     """
-    #print q.shape, delta
+    #print( q.shape, delta )
     #return qs.vecnorm_NDarray( qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) ) )
     return qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) )
 
@@ -113,7 +114,7 @@ def average_anisotropic_tensor(vq, qframe=(1,0,0,0)):
     Calculates the average tensor < q_i q_j >, i,j={x,y,z}
     """
     ndat=vq.shape[0]
-    #print "= = Debug: vq shape", vq.shape
+    #print( "= = Debug: vq shape", vq.shape )
     # Check if there is no rotation.
     if not qops.nearly_equivalent(qframe,(1,0,0,0)):
         vq=qs.rotate_vector_simd(vq, qframe)
@@ -158,7 +159,7 @@ def powell_expdecay(pos, *args):
     for i in range(nval):
         ymodel=C0*exp(-x[i]/A)+C1
         chi2+=(ymodel-y[i])**2
-        #print x[i], y[i], ymodel, A, C0, C1
+        #print( x[i], y[i], ymodel, A, C0, C1 )
     return chi2/nval
 
 def obtain_guess_isotropic(vlist):
@@ -188,13 +189,13 @@ def obtain_exponential_guess(x, y, C1):
 
 # F(x) = C0 e ^ (-x/A) + C1.
 def conduct_exponential_fit(xlist, ylist, C0, C1):
-    print '= = Begin exponential fit.'
+    print( '= = Begin exponential fit.' )
     xguess=[xlist[0],xlist[1]]
     yguess=[ylist[0],ylist[1]]
     guess=obtain_exponential_guess(xguess, yguess, C1)
-    print '= = = guessed initial tau: ', guess
+    print( '= = = guessed initial tau: ', guess )
     fitOut = fmin_powell(powell_expdecay, guess, args=(xlist, ylist, C0, C1))
-    print '= = = = Tau obtained: ', fitOut
+    print( '= = = = Tau obtained: ', fitOut )
     return fitOut
 
 def get_flex_bounds(x, samples, nsig=1):
@@ -244,10 +245,10 @@ def format_header(style_str, tau, taus=[]):
         Dval=0.5e12/tau
         Dvals=0.5e12/taus
         #Dvals=[ [0.5e12/taus[i][j] for j in range(len(taus[i]))] for i in range(len(taus)) ]
-        print tau
-        print taus
-        print Dval
-        print Dvals
+        print( tau )
+        print( taus )
+        print( Dval )
+        print( Dvals )
         for i in range(3):
             bound=get_flex_bounds(tau[i], taus[:,i])
             l.append('# model fit, e_%i tau = %e +- %e %e [ps]'  % (i, bound[0], bound[1], bound[2]))
@@ -272,7 +273,7 @@ def format_header_quat(q):
 def print_model_fits_gen(fname, ydims, str_header, xlist, ylist):
     """
     Generic XVG  printout. Uses the dimension of y1list to determine
-    how to print them. THe number of entries in each plot must be in the last dimension.
+    how to print( them. THe number of entries in each plot must be in the last dimension. )
     - 1D ylist is a single plot
     - 2D ylist will have multiple plots on the samge graph
     - 3D ylist will have multiple graphs (first axis), on which multiple plots will exist(second axis).
@@ -281,151 +282,108 @@ def print_model_fits_gen(fname, ydims, str_header, xlist, ylist):
     ndat=len(xlist)
     fp = open(fname, 'w')
     for line in str_header:
-        print >> fp, "%s" % line
+        print( "%s" % line, file=fp )
     if ydims==1:
         for i in range(ndat):
-            print >> fp, "%g %g" % (xlist[i], ylist[i])
+            print( "%g %g" % (xlist[i], ylist[i]), file=fp )
     elif ydims==2:
         dim1=len(ylist)
         for j in range(dim1):
-            print >> fp, "@target g%d.s%d" % (g,s)
+            print( "@target g%d.s%d" % (g,s), file=fp )
             for i in range(ndat):
-                print >> fp, "%g %g" % (xlist[i], ylist[j][i])
-            print >> fp, "&"
+                print( "%g %g" % (xlist[i], ylist[j][i]), file=fp )
+            print( "&", file=fp )
             s+=1
     elif ydims==3:
         dim1=len(ylist)
-        print "dim1: ", dim1
+        print( "dim1: ", dim1 )
         for k in range(dim1):
-            print >> fp, "@g%d on" % g
+            print( "@g%d on" % g, file=fp )
             g+=1
         g=0
         for k in range(dim1):
             dim2=len(ylist[k])
-            print "dim2: ", dim2
+            print( "dim2: ", dim2 )
             for j in range(dim2):
-                print >> fp, "@target g%d.s%d" % (g,s)
+                print( "@target g%d.s%d" % (g,s), file=fp )
                 for i in range(ndat):
-                    print >> fp, "%g %g" % (xlist[i], ylist[k][j][i])
-                print >> fp, "&"
+                    print( "%g %g" % (xlist[i], ylist[k][j][i]), file=fp )
+                print( "&", file=fp )
                 s+=1
             g+=1 ; s=0
     else:
-        print "= = = Critical ERROR: invalid dimension specifier in print_model_fits_gen!"
+        print( "= = = Critical ERROR: invalid dimension specifier in print_model_fits_gen!" )
         sys.exit(1)
     fp.close()
 
 def print_model_fits_iso(fname, xlist, ylist, model, tau):
     ndat=len(xlist)
     fp = open(fname, 'w')
-    print >> fp, "# model fit, tau = %g " % (tau)
+    print( "# model fit, tau = %g " % (tau), file=fp )
     Dval = 0.5e12/tau
     #Derr = 0.0
     #Derr = Dval*(tau_error/tau)
-    print >> fp, "# Converted D_iso = %g [s^-1]" % (Dval)
-    print >> fp, "# t cos(th) P2[cos(th)] cos(th/2) th"
+    print( "# Converted D_iso = %g [s^-1]" % (Dval), file=fp )
+    print( "# t cos(th) P2[cos(th)] cos(th/2) th", file=fp )
     for i in range(ndat):
-        print >> fp, "%g %g" % (xlist[i], ylist[i])
-    print >> fp, "&"
+        print( "%g %g" % (xlist[i], ylist[i]), file=fp )
+    print( "&", file=fp )
     for i in range(len(out_isolist)):
-        print >> fp, "%g %g" % (xlist[i], model[i])
-    print >> fp, "&"
+        print( "%g %g" % (xlist[i], model[i]), file=fp )
+    print( "&", file=fp )
     fp.close()
 
 def print_model_fits_aniso(fname, xlist, ylist, model, tau):
     ndat=len(xlist)
     fp = open(fname, 'w')
     for i in range(3):
-        print >> fp, "# model fit, e_%i tau = %g [ps]" % (i, tau[i])
+        print( "# model fit, e_%i tau = %g [ps]" % (i, tau[i]), file=fp )
         Dval = 0.5e12/tau[i]
-        print >> fp, "# Converted D_%i = %g [s^-1]" % (i, Dval)
-    print >> fp, "# t <1-2x^2> <1-2y^2> <1-2z^2>"
+        print( "# Converted D_%i = %g [s^-1]" % (i, Dval), file=fp )
+    print( "# t <1-2x^2> <1-2y^2> <1-2z^2>", file=fp )
     for i in range(ndat):
-        print >> fp, "%g %g %g %g" % (xlist[i],ylist[0][i],ylist[1][i],ylist[2][i])
-    print >> fp, "&"
+        print( "%g %g %g %g" % (xlist[i],ylist[0][i],ylist[1][i],ylist[2][i]), file=fp )
+    print( "&", file=fp )
     for i in range(ndat):
-        print >> fp, "%g %g %g %g" % (xlist[i], model[0][i], model[1][i], model[2][i])
-    print >> fp, "&"
+        print( "%g %g %g %g" % (xlist[i], model[0][i], model[1][i], model[2][i]), file=fp )
+    print( "&", file=fp )
     fp.close()
 
-def write_to_gnuplot_hist(in_fname, hist, edges):
-    fp = open(in_fname, 'w')
-    dim=len(edges)
-    nbin_vec=[ len(edges[i])-1 for i in range(dim) ]
-    # For Gnuplot, we should plot the average between the two edges.
-    # ndemunerate method iterates across all specified dimensions
-    # First gather and print some data as comments to aid interpretation and future scripting.
-    # Use final histogram output as authoritative source!
-    print >> fp, '# DIMENSIONS: %i' % dim
-    binwidth=np.zeros(dim)
-    print >> fp, '# BINWIDTH: ',
-    for i in range(dim):
-        binwidth[i]=(edges[i][-1]-edges[i][0])/nbin_vec[i]
-        print >> fp, '%g ' % binwidth[i],
-    print >> fp, ''
-    print >> fp, '# N_BINS: ',
-    for i in range(dim):
-        print >> fp, '%g ' % nbin_vec[i],
-    print >> fp, ''
-    for index, val in np.ndenumerate(hist):
-        for i in range(dim):
-            x=(edges[i][index[i]]+edges[i][index[i]+1])/2.0
-            print >> fp, '%g ' % x ,
-        print >> fp, '%g' % val
-        if index[-1] == nbin_vec[-1]-1:
-            print >> fp, ''
-    fp.close()
-
-def print_list(fname, list):
+def print_list(fname, l):
     fp = open(fname, 'w')
-    #nfield=len(list[0])
-    #fmtstr="%g "*nfield
-    for i in range(len(list)):
-        for j in range(len(list[i])):
-            print >> fp, "%10f " % float(list[i][j]),
-            #print >> fp, fmtstr[:-1] % list[i]
-        print >> fp , ""
-    print >> fp, "&"
-    fp.close()
-
-def print_xylist(fname, xlist, ylist):
-    fp = open(fname, 'w')
-    for i in range(len(xlist)):
-        print >> fp, "%10f " % float(xlist[i]),
-        for j in range(len(ylist[i])):
-            print >> fp, "%10f " % float(ylist[i][j]),
-            #print >> fp, fmtstr[:-1] % ylist[i]
-        print >> fp , ""
-    print >> fp, "&"
+    for i in range(len(l)):
+        print(" ".join("%10f" % float(l[i][j]) for j in range(len(l[i]))), file=fp)
+    print( "&", file=fp )
     fp.close()
 
 def print_axes_as_xyz(fname, mat):
     fp = open(fname, 'w')
     for i in range(len(mat)):
-        print >> fp, "3"
-        print >> fp, "AXES"
-        print >> fp, "X %g %g %g" % (out_moilist[i][0,0], out_moilist[i][0,1], out_moilist[i][0,2])
-        print >> fp, "Y %g %g %g" % (out_moilist[i][1,0], out_moilist[i][1,1], out_moilist[i][1,2])
-        print >> fp, "Z %g %g %g" % (out_moilist[i][2,0], out_moilist[i][2,1], out_moilist[i][2,2])
+        print( "3", file=fp )
+        print( "AXES", file=fp )
+        print( "X %g %g %g" % (out_moilist[i][0,0], out_moilist[i][0,1], out_moilist[i][0,2]), file=fp )
+        print( "Y %g %g %g" % (out_moilist[i][1,0], out_moilist[i][1,1], out_moilist[i][1,2]), file=fp )
+        print( "Z %g %g %g" % (out_moilist[i][2,0], out_moilist[i][2,1], out_moilist[i][2,2]), file=fp )
     fp.close()
 
 def debug_orthogonality(axes):
-    print "= = = Orthogonality check: "
-    print "%f, %f, %f\n" % \
-        (np.dot(axes[0],axes[1]),
-         np.dot(axes[0],axes[2]),
-         np.dot(axes[1],axes[2]))
+    print( "= = = Orthogonality check: " )
+    print( "%f, %f, %f\n" % \
+            (np.dot(axes[0],axes[1]),
+             np.dot(axes[0],axes[2]),
+             np.dot(axes[1],axes[2]))
+         )
 
 if __name__ == '__main__':
 
     #= = = Test for whether scipy accepts bounds. This is a dvelopment in 0.17.0
-    print "= = scipy version: ", scipyVersion.version
+    print( "= = scipy version: ", scipyVersion.version )
     # Irrelevant, now that we are using the more robust fmin_powell
     #if LooseVersion(scipyVersion.version) < LooseVersion("0.17.0"):
-    #    print "= = = WARNING: SciPy version does not contain bounded curve_fit! Requires >= 0.17.0."
-    #    print "= = =          ...will run unbounded version of curve fitting..."
+    #    print( "= = = WARNING: SciPy version does not contain bounded curve_fit! Requires >= 0.17.0." )
+    #    print( "= = =          ...will run unbounded version of curve fitting..." )
     #else:
-    #    print "= = = Note: SciPy version contains bounded curve_fit."
+    #    print( "= = = Note: SciPy version contains bounded curve_fit." )
 
     scriptname=os.path.basename(__file__)
 
@@ -467,7 +425,7 @@ if __name__ == '__main__':
                              'This is in the same time units as above, which the script will convert to frames, '
                              'as close as possible. ')
 
-    time_start=time.clock()
+    time_start=time.time()
     args = parser.parse_args()
 
     bDoTest=False
@@ -477,7 +435,7 @@ if __name__ == '__main__':
     out_pref=args.out_pref
     out_suff=args.out_suff
     if out_suff != "dx" and out_suff != "dat" and out_suff != "none":
-        print "= = ERROR in input: histogram output type must be either dx, or dat, or none."
+        print( "= = ERROR in input: histogram output type must be either dx, or dat, or none." )
         sys.exit()
     min_dt=args.min_dt
     max_dt=args.max_dt
@@ -501,19 +459,18 @@ if __name__ == '__main__':
     num_replicas   = data_shape[0]
     num_timepoints = data_shape[1]
 
-    print data_shape
-    print "= = Input data found to be as %i replicate trajectories, each with %i fields and %i entries. = =" \
-            % (num_replicas, len(fields[0]) , num_timepoints)
+    print( data_shape )
+    print( "= = Input data found to be as %i replicate trajectories, each with %i fields and %i entries. = =" % (num_replicas, len(fields[0]) , num_timepoints) )
 
     # = = Make sure there is sensible error analysis by making sure sub-chunk analysis does not cut across entries..?
     if num_chunk > 1 and num_replicas % num_chunk != 0:
-        print >> sys.stderr, "= = ERROR: Uncertainty estimation is not appropriately handled: the number of sub_chunks must divide the total number of replicate trajectories! num_chunk: %d num_replicas: %d" % (num_chunk, num_replicas)
+        print( "= = ERROR: Uncertainty estimation is not appropriately handled: the number of sub_chunks must divide the total number of replicate trajectories! num_chunk: %d num_replicas: %d" % (num_chunk, num_replicas), file=sys.stderr )
         sys.exit(1)
 
 
-    print data[0,0,1:5]
+    print( data[0,0,1:5] )
     qprev=data[0,0,1:5]
-    print "= = Initial quaternion read: ", str(qprev).strip('[]'), " = ="
+    print( "= = Initial quaternion read: ", str(qprev).strip('[]'), " = =" )
 
     # = = Translate input dt to the frame deltas = =
     data_delta_t=data[0,1,0]-data[0,0,0]
@@ -524,8 +481,8 @@ if __name__ == '__main__':
     report_interval=max(1,int(num_int*0.05))
     min_delta_t=min_int*data_delta_t
     max_delta_t=max_int*data_delta_t
-    print "= = Will calculate statistics for %i intervals between %g - %g ps, every %g ps) = =" % (num_int, min_delta_t, max_delta_t, skip_dt)
-    print "= = ...corresponding to %i - %i frames, every %i frames. = =" % (min_int, max_int, skip_int)
+    print( "= = Will calculate statistics for %i intervals between %g - %g ps, every %g ps) = =" % (num_int, min_delta_t, max_delta_t, skip_dt) )
+    print( "= = ...corresponding to %i - %i frames, every %i frames. = =" % (min_int, max_int, skip_int) )
     #No longer check if the maximum correlation time is longer than half the trajectory...
 
 
@@ -574,7 +531,7 @@ if __name__ == '__main__':
             moiR1=average_anisotropic_tensor(v_dq, q_frame)
         else:
             moiR1=moi
-        print " = = %i of %i intervals summed." % ((delta-min_int)/skip_int+1, nIntervals)
+        print( " = = %i of %i intervals summed." % ((delta-min_int)/skip_int+1, nIntervals) )
 
         #Append to overall list in next outer loop.
         out_dtlist[index]=time_delta
@@ -596,18 +553,18 @@ if __name__ == '__main__':
                 # The answer will be the same as simply eigenvals in the matching frame,
                 # but we'll calculate it again anyway as a debug.
                 moiR1=average_anisotropic_tensor(v_dq, q_frame)
-                print "= = Begin Debug."
-                print "= = = PAF Axes in REF frame:"
-                print moi_axes[0], moi_axes[1], moi_axes[2]
-                print "= = = Eigenvalues in REF frame and PAF frame:"
-                print eigval
-                print "= = = FRAME rotation from REF frame to PAF frame."
-                print q_rot, moi_axes[0], moi_axes[1], moi_axes[2]
-                print "= = = deltaQ Moment of Inertia tensor in REF frame:"
-                print moi
-                print "= = = deltaQ Moment of Inertia tensor in MoI frame:"
-                print moiR1
-                print "= = Debug finished."
+                print( "= = Begin Debug." )
+                print( "= = = PAF Axes in REF frame:" )
+                print( moi_axes[0], moi_axes[1], moi_axes[2] )
+                print( "= = = Eigenvalues in REF frame and PAF frame:" )
+                print( eigval )
+                print( "= = = FRAME rotation from REF frame to PAF frame." )
+                print( q_rot, moi_axes[0], moi_axes[1], moi_axes[2] )
+                print( "= = = deltaQ Moment of Inertia tensor in REF frame:" )
+                print( moi )
+                print( "= = = deltaQ Moment of Inertia tensor in MoI frame:" )
+                print( moiR1 )
+                print( "= = Debug finished." )
 
             # In the PAF frame, the eigenvalues *are* the cartesian components of <r^2>
             out_aniso1list[:,index]=[  1-2*eigval[0],  1-2*eigval[1],  1-2*eigval[2]]
@@ -629,11 +586,11 @@ if __name__ == '__main__':
 
             chunk_aniso2list[:,:,index]=[ [1-2*temp2[i][0,0], 1-2*temp2[i][1,1], 1-2*temp2[i][2,2]]
                                           for i in range(num_chunk) ]
-            #print "= = Debug:"
-            #print "chunk_isolist"
-            #print chunk_isolist[:,index]
-            #print "chunk_aniso2list"
-            #print chunk_aniso2list[:,:,index]
+            #print( "= = Debug:" )
+            #print( "chunk_isolist" )
+            #print( chunk_isolist[:,index] )
+            #print( "chunk_aniso2list" )
+            #print( chunk_aniso2list[:,:,index] )
 
         # Must write a histogram for each frame interval.
         if bDoHist:
@@ -650,7 +607,7 @@ if __name__ == '__main__':
                 dxio.write_to_dx(out_file, hist, nbin_vec, xmin, abc, 'nm')
             #Gnuplot output
             elif out_file.endswith("dat"):
-                write_to_gnuplot_hist(out_file, hist, edges)
+                gs.print_gplot_hist(out_file, hist, edges)
 
         #= = End of main for-loop governing a single delta t = =
 
@@ -660,7 +617,7 @@ if __name__ == '__main__':
     #out_aniso1list=out_aniso1list.T
     #out_aniso2list=out_aniso2list.T
     #Quaternions and full Matrices remain time first.
-    time_chk1=time.clock()
+    time_chk1=time.time()
 
     if bDoIso:
         tau=conduct_exponential_fit(out_dtlist, out_isolist, 1.5, -0.5)
@@ -724,12 +681,12 @@ if __name__ == '__main__':
                              file_header, out_dtlist, np.concatenate((out_aniso2list, models)) )
 
         #Print optimal fit quaternions
-        print_xylist(out_pref+"-aniso_q.dat", out_dtlist, out_qlist)
+        gs.print_xylist(out_pref+"-aniso_q.dat", out_dtlist, out_qlist)
 
         #Print axis vectors
         print_axes_as_xyz(out_pref+"-moi.xyz", out_moilist)
 
-    time_stop=time.clock()
+    time_stop=time.time()
     #Report time
-    print "= = Total seconds elapsed: %g" % (time_stop - time_start)
-    print "= = Time of Read and fit halves: %g , %g" % ( time_chk1-time_start, time_stop-time_chk1 )
+    print( "= = Total seconds elapsed: %g" % (time_stop - time_start) )
+    print( "= = Time of Read and fit halves: %g , %g" % ( time_chk1-time_start, time_stop-time_chk1 ) )

@@ -11,12 +11,12 @@ try:
     import psutil
     bPsutil = True
 except:
-    print "= = = NOTE: Module psutil isnot available, cannot respect memory usage on this run.."
+    print( "= = = NOTE: Module psutil isnot available, cannot respect memory usage on this run.." )
     bPsutil = False
 
 def print_selection_help():
-    print "Notes: This python program uses MDTraj as its underlying engine to analyse trajectories and select atoms."
-    print "It uses selection syntax such as 'chain A and resname GLY and name HA1 HA2', in a manner similar to GROMACS and VMD."
+    print( "Notes: This python program uses MDTraj as its underlying engine to analyse trajectories and select atoms." )
+    print( "It uses selection syntax such as 'chain A and resname GLY and name HA1 HA2', in a manner similar to GROMACS and VMD." )
 
 def P2(x):
     return 1.5*x**2.0-0.5
@@ -24,8 +24,8 @@ def P2(x):
 def assert_seltxt(mol, txt):
     ind = mol.topology.select(txt)
     if len(ind) == 0:
-        print "= = = ERROR: selection text failed to find atoms! ", seltxt
-        print "     ....debug: N(%s) = %i " % (txt, ind)
+        print( "= = = ERROR: selection text failed to find atoms! ", seltxt )
+        print( "     ....debug: N(%s) = %i " % (txt, ind) )
         return []
     else:
         return ind
@@ -40,12 +40,12 @@ def confirm_seltxt(ref, Hseltxt, Xseltxt):
         t1 = mol.topology.select('name H')
         t2 = mol.topology.select('name HN')
         t3 = mol.topology.select('name HA')
-        print "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3)
+        print( "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3) )
     if len(indX) == 0:
         bError=True
         t1 = mol.topology.select('name N')
         t2 = mol.topology.select('name NT')
-        print "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2)
+        print( "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2) )
     if bError:
         sys.exit(1)
     return indH, indX
@@ -54,8 +54,8 @@ def confirm_seltxt(ref, Hseltxt, Xseltxt):
 def obtain_XHres(traj, seltxt):
     indexH = traj.topology.select(seltxt)
     if len(indexH) == 0:
-        print "= = = ERROR: selection text failed to find atoms! ", seltxt
-        print "     ....debug: N(%s) = %i " % (Hseltxt, numH)
+        print( "= = = ERROR: selection text failed to find atoms! ", seltxt )
+        print( "     ....debug: N(%s) = %i " % (Hseltxt, numH) )
         sys.exit(1)
     #    indexH = traj.topology.select("name H and resSeq 3")
     resXH = [ traj.topology.atom(indexH[i]).residue.resSeq for i in range(len(indexH)) ]
@@ -63,18 +63,18 @@ def obtain_XHres(traj, seltxt):
 
 def obtain_XHvecs(traj, Hseltxt, Xseltxt, bSuppressPrint = False):
     if not bSuppressPrint:
-        print "= = = Obtaining XH-vectors from trajectory..."
+        print( "= = = Obtaining XH-vectors from trajectory..." )
     #nFrames= traj.n_frames
     indexX = traj.topology.select(Xseltxt)
     indexH = traj.topology.select(Hseltxt)
     numX = len(indexX) ; numH = len(indexH)
     if numX == 0 or numH == 0 :
-        print "= = = ERROR: selection text failed to find atoms!"
-        print "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH)
+        print( "= = = ERROR: selection text failed to find atoms!" )
+        print( "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH) )
         sys.exit(1)
     if len(indexH) != len(indexX):
-        print "= = = ERROR: selection text found different number of atoms!"
-        print "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH)
+        print( "= = = ERROR: selection text found different number of atoms!" )
+        print( "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH) )
         sys.exit(1)
     #Do dangerous trick to select nitrogens connexted to HN..
     #indexX = [ indexH[i]-1 for i in range(len(indexH))]
@@ -141,7 +141,7 @@ def calculate_S2_by_outerProduct(vecs, delta_t=-1, tau_memory=-1):
             dS2 = np.std ( tmp, axis=0 ) / ( np.sqrt(nBlocks) - 1.0 )
             return np.stack( (S2,dS2), axis=-1 )
     else:
-        print >> sys.stderr, "= = = ERROR in calculate_S2_by_outerProduct: unsupported number of dimensions! vecs.shape: ", sh
+        print( "= = = ERROR in calculate_S2_by_outerProduct: unsupported number of dimensions! vecs.shape: ", sh, file=sys.stderr )
         sys.exit(1)
 
 # iRED and wiRED implemented according to reading of
@@ -154,7 +154,7 @@ def calculate_S2_by_outerProduct(vecs, delta_t=-1, tau_memory=-1):
 # 3. S2 is then the component that is covered by the internal motions,
 #    excluding the first 5 motions governing global reorientation.
 def calculate_S2_by_wiRED(vecs, dt, tau):
-    print tau, dt
+    print( tau, dt )
     # Todo.
     # Construct M for each chunk
     # Average over all frames
@@ -167,7 +167,7 @@ def calculate_S2_by_wiRED(vecs, dt, tau):
     nFrChunk=floor(2*tau/dt)
 
 def calculate_S2_by_iRED(vecs, dt, tau):
-    print tau, dt
+    print( tau, dt )
     # Todo.
     # Construct M for each chunk
     # Average over all frames
@@ -206,13 +206,13 @@ def calculate_Ct_Palmer(vecs):
     Output Ct and dCt should take dimensions ( nResidues, nDeltas )
     """
     sh = vecs.shape
-    print "= = = Debug of calculate_Ct_Palmer confirming the dimensions of vecs:", sh
+    print( "= = = Debug of calculate_Ct_Palmer confirming the dimensions of vecs:", sh )
     if sh[1]<50:
-        print >> sys.stderr,"= = = WARNING: there are less than 50 frames per block of memory-time!"
+        print("= = = WARNING: there are less than 50 frames per block of memory-time!", file=sys.stderr )
 
     if len(sh)!=4:
         # Not in the right form...
-        print >> sys.stderr, "= = = ERROR: The input vectors to calculate_Ct_Palmer is not of the expected 4-dimensional form! " % sh
+        print( "= = = ERROR: The input vectors to calculate_Ct_Palmer is not of the expected 4-dimensional form! " % sh, file=sys.stderr )
         sys.exit(1)
 
     nReplicates=sh[0] ; nDeltas=sh[1]/2 ; nResidues=sh[2]
@@ -228,12 +228,12 @@ def calculate_Ct_Palmer(vecs):
         dCt[delta-1] = np.std( tmp,axis=0 ) / ( np.sqrt(nReplicates) - 1.0 )
         #if bFirst:
         #    bFirst=False
-        #    print tmp.shape, P2.shape
-        #    print tmp[0,0,0], P2[0,0]
+        #    print( tmp.shape, P2.shape )
+        #    print( tmp[0,0,0], P2[0,0] )
         #Ct[delta-1]  = np.mean( tmp,axis=(0,1) )
         #dCt[delta-1] = np.std( tmp,axis=(0,1) ) / ( np.sqrt(nReplicates*nVals) - 1.0 )
 
-    #print "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1])
+    #print( "= = Bond %i Ct computed. Ct(%g) = %g , Ct(%g) = %g " % (i, dt[0], Ct_loc[0], dt[-1], Ct_loc[-1]) )
     # Return with dimensions ( nDeltas, nResidues ) by default.
     return Ct, dCt
 
@@ -253,14 +253,14 @@ def reformat_vecs_by_tau(vecs, dt, tau):
     # Don't assume all files have the same number of frames.
     nFiles = len(vecs)
     nFramesPerChunk=int(tau/dt)
-    print "    ...debug: Using %i frames per chunk based on tau/dt (%g/%g)." % (nFramesPerChunk, tau, dt)
+    print( "    ...debug: Using %i frames per chunk based on tau/dt (%g/%g)." % (nFramesPerChunk, tau, dt) )
     used_frames     = np.zeros(nFiles, dtype=int)
     remainders = np.zeros(nFiles, dtype=int)
     for i in range(nFiles):
         nFrames = vecs[i].shape[0]
         used_frames[i] = int(nFrames/nFramesPerChunk)*nFramesPerChunk
         remainders[i] = nFrames % nFramesPerChunk
-        print "    ...Source %i divided into %i chunks. Usage rate: %g %%" % (i, used_frames[i]/nFramesPerChunk, 100.0*used_frames[i]/nFrames )
+        print( "    ...Source %i divided into %i chunks. Usage rate: %g %%" % (i, used_frames[i]/nFramesPerChunk, 100.0*used_frames[i]/nFrames ) )
 
     nFramesTot = int( used_frames.sum() )
     out = np.zeros( ( nFramesTot, vecs[0].shape[1], vecs[0].shape[2] ) , dtype=vecs[0].dtype)
@@ -271,7 +271,7 @@ def reformat_vecs_by_tau(vecs, dt, tau):
         out[start:end,...] = vecs[i][0:endv,...]
         start=end
     sh = out.shape
-    print "    ...Done. vecs reformatted into %i chunks." % ( nFramesTot/nFramesPerChunk )
+    print( "    ...Done. vecs reformatted into %i chunks." % ( nFramesTot/nFramesPerChunk ) )
     return out.reshape ( (nFramesTot/nFramesPerChunk, nFramesPerChunk, sh[-2], sh[-1]) )
 
 def LS_one(x, S2, tau_c):
@@ -293,25 +293,6 @@ def get_indices_mdtraj( seltxt, top, filename):
     else:
         return top.select(seltxt)
 
-def print_sy(fname, slist,ylist):
-    fp = open(fname, 'w')
-    for i in range(len(slist)):
-        print >> fp, "%10s " % slist[i],
-        print >> fp, "%10f" % float(ylist[i])
-    print >> fp, "&"
-    fp.close()
-
-def print_xylist(fname, xlist, ylist):
-    fp = open(fname, 'w')
-    for i in range(len(xlist)):
-        print >> fp, "%10f " % float(xlist[i]),
-        for j in range(len(ylist[i])):
-            print >> fp, "%10f " % float(ylist[i][j]),
-            #print >> fp, fmtstr[:-1] % ylist[i]
-        print >> fp , ""
-    print >> fp, "&"
-    fp.close()
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Obtain the unit X-H vectors from one of more trajectories,'
@@ -328,7 +309,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
     parser.add_argument('--split', type=int, dest='nSplitFrames', default=-1,
-                        help='Optionally split the reading of large trajectories into N frames to reduce memory footprint.')			
+                        help='Optionally split the reading of large trajectories into N frames to reduce memory footprint.')
     parser.add_argument('-t','--tau', type=float, dest='tau', default=None,
                         help='An estimate of the global tumbling time that is used to ignore internal motions'
                              'on timescales larger than can be measured by NMR relaxation. Same time units as trajectory, usually ps.'
@@ -364,7 +345,7 @@ if __name__ == '__main__':
     parser.add_argument('--help_sel', action='store_true', help='Display help for selection texts and exit.')
 
     args = parser.parse_args()
-    time_start=time.clock()
+    time_start=time.time()
 
     if args.help_sel:
         print_selection_help()
@@ -375,7 +356,7 @@ if __name__ == '__main__':
     bDoS2=args.bDoS2
     bDoCt=args.bDoCt
     if bDoCt and tau_memory == None:
-        print >> sys.stderr, "= = = Refusing to do C(t)-analysis without using a block averaging over memory_time tau!"
+        print( "= = = Refusing to do C(t)-analysis without using a block averaging over memory_time tau!", file=sys.stderr )
         sys.exit(1)
     bDoVecDistrib=args.bDoVecDistrib
     bDoVecHist=args.bDoVecHist
@@ -390,7 +371,7 @@ if __name__ == '__main__':
         q_rot = np.array( [ float(v) for v in args.vecRotQ.split() ] )
         if len(q_rot) != 4 or np.allclose(np.dot(q,q), 1):
         #if len(q_rot) != 4 or not q_ops.qisunit(q_rot):
-            print "= = = ERROR: input rotation quaternion is malformed!", q_rot
+            print( "= = = ERROR: input rotation quaternion is malformed!", q_rot )
             sys.exit(23)
     else:
         bRotVec=False
@@ -419,15 +400,15 @@ if __name__ == '__main__':
         bMultiRef=False
         top_filename=in_reflist[0]
         ref = md.load(top_filename)
-        print "= = = Loaded single reference file: %s" % (top_filename)
+        print( "= = = Loaded single reference file: %s" % (top_filename) )
         # Load the atom indices over which the atom fit will take place.
         fit_indices = get_indices_mdtraj(top=ref.topology, filename=top_filename, seltxt=fittxt)
-        print "= = = Debug: fit_indices number: %i" % len(fit_indices)
+        print( "= = = Debug: fit_indices number: %i" % len(fit_indices) )
     else:
-        print "= = = Detected multiple reference file inputs."
+        print( "= = = Detected multiple reference file inputs." )
         bMultiRef=True
         if n_refs != n_trjs:
-            print >> sys.stderr, "= = ERROR: When giving multiple reference files, you must have one for each trajecfile file given!"
+            print( "= = ERROR: When giving multiple reference files, you must have one for each trajecfile file given!", file=sys.stderr )
             sys.exit(1)
 
     # = = Load all trajectory data. Notes: Each file's resXH is 1D, vecXH is 3D in (frame, bond, XYZ)
@@ -438,13 +419,13 @@ if __name__ == '__main__':
         if bMultiRef:
             top_filename=in_reflist[i]
             ref = md.load(top_filename)
-            print "= = = Loaded reference file %i: %s" % (i, top_filename)
+            print( "= = = Loaded reference file %i: %s" % (i, top_filename) )
             fit_indices = get_indices_mdtraj( top=ref.topology, filename=top_filename, seltxt=fittxt)
-            print "= = = Debug: fit_indices number: %i" % len(fit_indices)
+            print( "= = = Debug: fit_indices number: %i" % len(fit_indices) )
 
         if bSplitRead:
             # = = = To tackle trajectory files that take too much memory, split into N frames
-            print "= = = Loading trajectory file %s in chunks..." % (in_flist[i])
+            print( "= = = Loading trajectory file %s in chunks..." % (in_flist[i]) )
             nFrames_loc = 0
             for trjChunk in md.iterload(in_flist[i], chunk=1000, top=top_filename):
                 tempV  = obtain_XHvecs(trjChunk, Hseltxt, Xseltxt, bSuppressPrint=True)
@@ -463,19 +444,19 @@ if __name__ == '__main__':
                     vecXH_loc    = np.concatenate( (vecXH_loc, tempV), axis=0 )
                     vecXHfit_loc = np.concatenate( (vecXHfit_loc, tempV2), axis=0 )
 
-                print "= = = ...loaded %i frames so far." % (nFrames_loc)
+                print( "= = = ...loaded %i frames so far." % (nFrames_loc) )
 
-            print "= = = Finished loading trajectory file %s. It has %i atoms and %i frames." % (in_flist[i], trjChunk.n_atoms, nFrames_loc)
-            print vecXHfit_loc.shape
+            print( "= = = Finished loading trajectory file %s. It has %i atoms and %i frames." % (in_flist[i], trjChunk.n_atoms, nFrames_loc) )
+            print( vecXHfit_loc.shape )
             nBonds_loc  = vecXHfit_loc.shape[1]
-	    	    
-	    del trjChunk
+
+            del trjChunk
 
         else:
             # = = = Faster single-step read
-            print "= = = Reading trajectory file %s ..." % (in_flist[i])
+            print( "= = = Reading trajectory file %s ..." % (in_flist[i]) )
             trj = md.load(in_flist[i], top=top_filename)
-            print "= = = File loaded - it has %i atoms and %i frames." % (trj.n_atoms, trj.n_frames)
+            print( "= = = File loaded - it has %i atoms and %i frames." % (trj.n_atoms, trj.n_frames) )
             # = = Run sanity check
             confirm_seltxt(trj, Hseltxt, Xseltxt)
             deltaT_loc = trj.timestep ; nFrames_loc = trj.n_frames
@@ -484,7 +465,7 @@ if __name__ == '__main__':
 
             trj.center_coordinates()
             trj.superpose(ref, frame=0, atom_indices=fit_indices )
-            print "= = = Molecule centered and fitted."
+            print( "= = = Molecule centered and fitted." )
             #msds = md.rmsd(trj, ref, 0, precentered=True)
             vecXHfit_loc = obtain_XHvecs(trj, Hseltxt, Xseltxt)
             nBonds_loc  = vecXH_loc.shape[1]
@@ -492,7 +473,7 @@ if __name__ == '__main__':
             del trj
 
         if tau_memory is not None and deltaT > 0.5*tau_memory:
-            print >> sys.stderr, "= = = ERROR: delta-t form the trajectory is too small relative to tau! %g vs. %g" % (deltaT, tau_memory)
+            print( "= = = ERROR: delta-t form the trajectory is too small relative to tau! %g vs. %g" % (deltaT, tau_memory), file=sys.stderr )
             sys.exit(1)
 
         # = = Update overall variables
@@ -501,19 +482,19 @@ if __name__ == '__main__':
             deltaT = deltaT_loc ; nFrames = nFrames_loc ; nBonds = nBonds_loc
         else:
             if deltaT != deltaT_loc or nBonds != nBonds_loc or not np.equal(resXH, resXH_loc):
-                print >> sys.stderr, "= = = ERROR: Differences in trajectories have been detected! Aborting."
-                print >> sys.stderr, "      ...delta-t: %g vs.%g " % (deltaT, deltaT_loc)
-                print >> sys.stderr, "      ...n-bonds: %g vs.%g " % (nBonds, nBonds_loc)
-                print >> sys.stderr, "      ...Residue-XORs: %s " % ( set(resXH)^set(resXH_loc) )
+                print( "= = = ERROR: Differences in trajectories have been detected! Aborting.", file=sys.stderr )
+                print( "      ...delta-t: %g vs.%g " % (deltaT, deltaT_loc), file=sys.stderr )
+                print( "      ...n-bonds: %g vs.%g " % (nBonds, nBonds_loc), file=sys.stderr )
+                print( "      ...Residue-XORs: %s " % ( set(resXH)^set(resXH_loc) ), file=sys.stderr )
 
         vecXH.append(vecXH_loc) ; vecXHfit.append(vecXHfit_loc)
-        print "     ... XH-vector data added to memory, using 2x %.2f MB" % (  sys.getsizeof(vecXH_loc)/1024.0**2.0 )
+        print( "     ... XH-vector data added to memory, using 2x %.2f MB" % (  sys.getsizeof(vecXH_loc)/1024.0**2.0 ) )
 
-#        print "= = = Loaded trajectory %s - Found %i XH-vectors %i frames." %  ( in_flist[i], nBonds_loc, vecXH_loc.shape[0] )
+#        print( "= = = Loaded trajectory %s - Found %i XH-vectors %i frames." %  ( in_flist[i], nBonds_loc, vecXH_loc.shape[0] ) )
 
     del vecXH_loc ; del vecXHfit_loc
     # = = =
-    print "= = Loading finished."
+    print( "= = Loading finished." )
     vecXH=np.array(vecXH) ; vecXHfit=np.array(vecXHfit)
 
     if bPsutil:
@@ -521,31 +502,31 @@ if __name__ == '__main__':
         nFreeMem = 1.0*psutil.virtual_memory()[3]/1024.0**2
         nVecMem = 1.0*sys.getsizeof(vecXH)/1024.0**2
         if nFreeMem < 2*nVecMem:
-            print " = = = WARNING: the size of vectors is getting close to the amount of free system memory!"
-            print "    ... %.2f MB used by one vector vecXH." % nVecMem
-            print "    ... %.2f MB free system memory." % nFreeMem
+            print( " = = = WARNING: the size of vectors is getting close to the amount of free system memory!" )
+            print( "    ... %.2f MB used by one vector vecXH." % nVecMem )
+            print( "    ... %.2f MB free system memory." % nFreeMem )
         else:
-            print " = = = Memoryfootprint debug. vecXH uses %.2f MB versus %.2f MB free memory" % ( nVecMem, nFreeMem )
+            print( " = = = Memoryfootprint debug. vecXH uses %.2f MB versus %.2f MB free memory" % ( nVecMem, nFreeMem ) )
     else:
-        print "= = = psutil module has not been loaded. Cannot check for memory footprinting."
+        print( "= = = psutil module has not been loaded. Cannot check for memory footprinting." )
 
     if tau_memory is not None:
-        print "= = Reformatting all vecXH information into chunks of tau ( %g ) " % tau_memory
+        print( "= = Reformatting all vecXH information into chunks of tau ( %g ) " % tau_memory )
         vecXH = reformat_vecs_by_tau(vecXH, deltaT, tau_memory)
         vecXHfit = reformat_vecs_by_tau(vecXHfit, deltaT, tau_memory)
 
     # First analysis to be done is the C(t)-analysis, since that cannot be done after compressing the 4D to 3D.
     if bDoCt:
-        print "= = = Conducting Ct_external using Palmer's approach."
-        print "= = = timestep: ", deltaT, "ps"
-        print "= = = tau_memory: ", tau_memory, "ps"
+        print( "= = = Conducting Ct_external using Palmer's approach." )
+        print( "= = = timestep: ", deltaT, "ps" )
+        print( "= = = tau_memory: ", tau_memory, "ps" )
         if n_trjs > 1:
-            print "= = = N.B.: For multiple files, 2D averaging is conducted at each datapoint."
+            print( "= = = N.B.: For multiple files, 2D averaging is conducted at each datapoint." )
 
         dt = calculate_dt(deltaT, tau_memory)
         Ct, dCt = calculate_Ct_Palmer(vecXH)
         gs.print_sxylist(out_pref+'_Ctext.dat', resXH, dt, np.stack( (Ct.T,dCt.T), axis=-1) )
-        print "= = = Conducting Ct_internal using Palmer's approach."
+        print( "= = = Conducting Ct_internal using Palmer's approach." )
         Ct, dCt = calculate_Ct_Palmer(vecXHfit)
         gs.print_sxylist(out_pref+'_Ctint.dat', resXH, dt, np.stack( (Ct.T,dCt.T), axis=-1) )
         del Ct, dCt
@@ -558,17 +539,17 @@ if __name__ == '__main__':
 
     # = = = This operation can be particularly memory intensive for full parallelism.
     if bRotVec:
-        print "= = = Rotating all fitted vectors by the input quaternion into PAF."
+        print( "= = = Rotating all fitted vectors by the input quaternion into PAF." )
         if bPsutil:
             # = = = Check vector size and currently free memory. Units are in bytes.
             nFreeMem = psutil.virtual_memory()[3]
 
             nVecMem = sys.getsizeof(vecXHfit)
             if nVecMem == 0.0 or nVecMem/1024.**2.0 == 0.0:
-                print >> sys.stderr, "= = Strange system memory error??"
+                print( "= = Strange system memory error??", file=sys.stderr )
                 bSplit=True
             else:
-                print "= = = Memory check: allocation will require at least %.2f MB from %.2f MB remaining." % (nVecMem/1024.**2.0, nFreeMem/1024.**2.0)
+                print( "= = = Memory check: allocation will require at least %.2f MB from %.2f MB remaining." % (nVecMem/1024.**2.0, nFreeMem/1024.**2.0) )
                 if 2*nVecMem > nFreeMem:
                     bSplit = True
                 else:
@@ -585,8 +566,8 @@ if __name__ == '__main__':
             try:
                 vecXHfit = qs.rotate_vector_simd(vecXHfit, q_rot)
             except MemoryError:
-                print >> sys.stderr, "= = WARNING: Ran out of memory running vector rotations! Memory requirement estimates were too low."
-                print >> sys.stderr, "= =      ....rerunning with split vectors."
+                print( "= = WARNING: Ran out of memory running vector rotations! Memory requirement estimates were too low.", file=sys.stderr )
+                print( "= =      ....rerunning with split vectors.", file=sys.stderr )
                 # = = = Split into blocks as defined by tau_memory
                 for i in range(sh[0]):
                     vecXHfit[i*sh[1]:(i+1)*sh[1]] = qs.rotate_vector_simd(vecXHfit[i*sh[1]:(i+1)*sh[1] ], q_rot)
@@ -602,12 +583,12 @@ if __name__ == '__main__':
         del vecXHfitavg
 
     if bDoVecDistrib:
-        print "= = = Converting vectors into spherical coordinates."
+        print( "= = = Converting vectors into spherical coordinates." )
         try:
             rtp = gm.xyz_to_rtp(vecXHfit)
-            # print type(rtp[0,0,0])
+            # print( type(rtp[0,0,0]) )
         except MemoryError:
-            print >> sys.stderr, "= = ERROR: Ran out of memory running spherical conversion!"
+            print( "= = ERROR: Ran out of memory running spherical conversion!", file=sys.stderr )
             sys.exit(9)
             # = = = Don't bother rescuing.
             #for i in range(sh[0]*sh[1]):
@@ -617,7 +598,7 @@ if __name__ == '__main__':
             #sys.exit(9)
 
         rtp = np.transpose(rtp,axes=(1,0,2)) ;# Convert from time first, to resid first.
-        print "= = = Debug: shape of the spherical vector distribution:", rtp.shape
+        print( "= = = Debug: shape of the spherical vector distribution:", rtp.shape )
         if not bDoVecHist:
             if bBinary:
                 np.savez_compressed(out_pref+'_vecPhiTheta.npz', names=resXH, \
@@ -628,7 +609,7 @@ if __name__ == '__main__':
             # = = = Conduct histograms on the dimension of phi, cos(theta). The Lambert Cylindrical projection preserves sample area, and therefore preserves the bin occupancy rates.
             # = = = ...this leads to relative bin occupancies that make more sense when plotted directly.
             rtp = np.delete( rtp, 0, axis=2)
-            print "= = = Histgrams will use Lambert Cylindrical projection by converting Theta spanning (0,pi) to cos(Theta) spanning (-1,1)"
+            print( "= = = Histgrams will use Lambert Cylindrical projection by converting Theta spanning (0,pi) to cos(Theta) spanning (-1,1)" )
             rtp[...,1]=np.cos(rtp[...,1])
 
             hist_list=np.zeros((nBonds,histBinX,histBinY), dtype=rtp.dtype)
@@ -640,7 +621,7 @@ if __name__ == '__main__':
                     edgesAll = edges
                 #else:
                 #    if np.any(edgesAll!=edges):
-                #        print >> sys.stderr, "= = = ERROR: histogram borders are not equal. This should never happen!"
+                #        print( "= = = ERROR: histogram borders are not equal. This should never happen!", file=sys.stderr )
                 #        sys.exit(1)
                 hist_list[i]=hist
 
@@ -652,21 +633,21 @@ if __name__ == '__main__':
                     ofile=out_pref+'_vecXH_'+str(resXH[i])+'.hist'
                     gs.print_gplot_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).', bSphere=True)
                     #gs.print_R_hist(ofile, hist, edges, header='# Lamber Cylindrical Histogram over phi,cos(theta).')
-                    print "= = = Written to output: ", ofile
+                    print( "= = = Written to output: ", ofile )
 
     if bDoS2:
         if tau_memory != None:
-            print "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps"
+            print( "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps" )
             S2 = calculate_S2_by_outerProduct(vecXHfit, deltaT, tau_memory)
         else:
-            print "= = = Conducting S2 analysis directly from trajectories."
+            print( "= = = Conducting S2 analysis directly from trajectories." )
             S2 = calculate_S2_by_outerProduct(vecXHfit)
 
         gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
-        print "      ...complete."
+        print( "      ...complete." )
 
-    time_stop=time.clock()
+    time_stop=time.time()
     #Report time
-    print "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start)
+    print( "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start) )
 
 sys.exit()

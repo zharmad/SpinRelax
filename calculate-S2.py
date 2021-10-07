@@ -2,17 +2,18 @@ from math import *
 import sys, argparse, time
 import numpy as np
 import mdtraj as md
+import general_scripts as gs
 
 try:
     import psutil
     bPsutil = True
 except:
-    print "= = = NOTE: Module psutil isnot available, cannot respect memory usage on this run.."
+    print( "= = = NOTE: Module psutil isnot available, cannot respect memory usage on this run.." )
     bPsutil = False
 
 def print_selection_help():
-    print "Notes: This python program uses MDTraj as its underlying engine to analyse trajectories and select atoms."
-    print "It uses selection syntax such as 'chain A and resname GLY and name HA1 HA2', in a manner similar to GROMACS and VMD."
+    print( "Notes: This python program uses MDTraj as its underlying engine to analyse trajectories and select atoms." )
+    print( "It uses selection syntax such as 'chain A and resname GLY and name HA1 HA2', in a manner similar to GROMACS and VMD." )
 
 def P2(x):
     return 1.5*x**2.0-0.5
@@ -20,8 +21,8 @@ def P2(x):
 def assert_seltxt(mol, txt):
     ind = mol.topology.select(txt)
     if len(ind) == 0:
-        print "= = = ERROR: selection text failed to find atoms! ", seltxt
-        print "     ....debug: N(%s) = %i " % (txt, ind)
+        print( "= = = ERROR: selection text failed to find atoms! ", seltxt )
+        print( "     ....debug: N(%s) = %i " % (txt, ind) )
         return []
     else:
         return ind
@@ -36,12 +37,12 @@ def confirm_seltxt(ref, Hseltxt, Xseltxt):
         t1 = mol.topology.select('name H')
         t2 = mol.topology.select('name HN')
         t3 = mol.topology.select('name HA')
-        print "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3)
+        print( "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3) )
     if len(indX) == 0:
         bError=True
         t1 = mol.topology.select('name N')
         t2 = mol.topology.select('name NT')
-        print "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2)
+        print( "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2) )
     if bError:
         sys.exit(1)
     return indH, indX
@@ -50,8 +51,8 @@ def confirm_seltxt(ref, Hseltxt, Xseltxt):
 def obtain_XHres(traj, seltxt):
     indexH = traj.topology.select(seltxt)
     if len(indexH) == 0:
-        print "= = = ERROR: selection text failed to find atoms! ", seltxt
-        print "     ....debug: N(%s) = %i " % (Hseltxt, numH)
+        print( "= = = ERROR: selection text failed to find atoms! ", seltxt )
+        print( "     ....debug: N(%s) = %i " % (Hseltxt, numH) )
         sys.exit(1)
     #    indexH = traj.topology.select("name H and resSeq 3")
     resXH = [ traj.topology.atom(indexH[i]).residue.resSeq for i in range(len(indexH)) ]
@@ -59,18 +60,18 @@ def obtain_XHres(traj, seltxt):
 
 def obtain_XHvecs(traj, Hseltxt, Xseltxt, bSuppressPrint = False):
     if not bSuppressPrint:
-        print "= = = Obtaining XH-vectors from trajectory..."
+        print( "= = = Obtaining XH-vectors from trajectory..." )
     #nFrames= traj.n_frames
     indexX = traj.topology.select(Xseltxt)
     indexH = traj.topology.select(Hseltxt)
     numX = len(indexX) ; numH = len(indexH)
     if numX == 0 or numH == 0 :
-        print "= = = ERROR: selection text failed to find atoms!"
-        print "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH)
+        print( "= = = ERROR: selection text failed to find atoms!" )
+        print( "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH) )
         sys.exit(1)
     if len(indexH) != len(indexX):
-        print "= = = ERROR: selection text found different number of atoms!"
-        print "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH)
+        print( "= = = ERROR: selection text found different number of atoms!" )
+        print( "     ....debug: N(%s) = %i , N(%s) = %i" % (Xseltxt, numX, Hseltxt, numH) )
         sys.exit(1)
     #Do dangerous trick to select nitrogens connexted to HN..
     #indexX = [ indexH[i]-1 for i in range(len(indexH))]
@@ -151,7 +152,7 @@ def calculate_S2_by_outerProduct(vecs, delta_t=-1, tau_memory=-1):
             dS2 = np.std ( tmp, axis=0 ) / ( np.sqrt(nBlocks) - 1.0 )
             return np.stack( (S2,dS2), axis=-1 )
     else:
-        print >> sys.stderr, "= = = ERROR in calculate_S2_by_outerProduct: unsupported number of dimensions! vecs.shape: ", sh
+        print( "= = = ERROR in calculate_S2_by_outerProduct: unsupported number of dimensions! vecs.shape: ", sh, file=sys.stderr )
         sys.exit(1)
 
 # iRED and wiRED implemented according to reading of
@@ -164,7 +165,7 @@ def calculate_S2_by_outerProduct(vecs, delta_t=-1, tau_memory=-1):
 # 3. S2 is then the component that is covered by the internal motions,
 #    excluding the first 5 motions governing global reorientation.
 def calculate_S2_by_wiRED(vecs, dt, tau):
-    print tau, dt
+    print( tau, dt )
     # Todo.
     # Construct M for each chunk
     # Average over all frames
@@ -177,7 +178,7 @@ def calculate_S2_by_wiRED(vecs, dt, tau):
     nFrChunk=floor(2*tau/dt)
 
 def calculate_S2_by_iRED(vecs, dt, tau):
-    print tau, dt
+    print( tau, dt )
     # Todo.
     # Construct M for each chunk
     # Average over all frames
@@ -200,14 +201,14 @@ def reformat_vecs_by_tau(vecs, dt, tau):
     # Don't assume all files have the same number of frames.
     nFiles = len(vecs)
     nFramesPerChunk=int(tau/dt)
-    print "    ...debug: Using %i frames per chunk based on tau/dt (%g/%g)." % (nFramesPerChunk, tau, dt)
+    print( "    ...debug: Using %i frames per chunk based on tau/dt (%g/%g)." % (nFramesPerChunk, tau, dt) )
     used_frames     = np.zeros(nFiles, dtype=int)
     remainders = np.zeros(nFiles, dtype=int)
     for i in range(nFiles):
         nFrames = vecs[i].shape[0]
         used_frames[i] = int(nFrames/nFramesPerChunk)*nFramesPerChunk
         remainders[i] = nFrames % nFramesPerChunk
-        print "    ...Source %i divided into %i chunks. Usage rate: %g %%" % (i, used_frames[i]/nFramesPerChunk, 100.0*used_frames[i]/nFrames )
+        print( "    ...Source %i divided into %i chunks. Usage rate: %g %%" % (i, used_frames[i]/nFramesPerChunk, 100.0*used_frames[i]/nFrames ) )
 
     nFramesTot = int( used_frames.sum() )
     out = np.zeros( ( nFramesTot, vecs[0].shape[1], vecs[0].shape[2] ) , dtype=vecs[0].dtype)
@@ -218,7 +219,7 @@ def reformat_vecs_by_tau(vecs, dt, tau):
         out[start:end,...] = vecs[i][0:endv,...]
         start=end
     sh = out.shape
-    print "    ...Done. vecs reformatted into %i chunks." % ( nFramesTot/nFramesPerChunk )
+    print( "    ...Done. vecs reformatted into %i chunks." % ( nFramesTot/nFramesPerChunk ) )
     return out.reshape ( (nFramesTot/nFramesPerChunk, nFramesPerChunk, sh[-2], sh[-1]) )
 
 def LS_one(x, S2, tau_c):
@@ -239,46 +240,6 @@ def get_indices_mdtraj( seltxt, top, filename):
         return [ inds[i] for i in range(len(mask)) if mask[i] > 0.0 ]
     else:
         return top.select(seltxt)
-
-def print_sy(fname, slist,ylist):
-    fp = open(fname, 'w')
-    for i in range(len(slist)):
-        print >> fp, "%10s " % slist[i],
-        print >> fp, "%10f" % float(ylist[i])
-    print >> fp, "&"
-    fp.close()
-
-def print_xylist(fn, x, ylist, bCols=False, header=""):
-    """
-    Array formats: x(nvals) y(nplots,nvals)
-    bCols will stack all y contents in the same line, useful for errors.
-    """
-    fp = open( fn, 'w')
-    if header != "":
-        print >> fp, header
-    ylist=np.array(ylist)
-    shape=ylist.shape
-    print shape
-    if len(shape)==1:
-        for j in range(len(x)):
-            print >> fp, x[j], ylist[j]
-        print >> fp, "&"
-    elif len(shape)==2:
-        nplot=shape[0]
-        nvals=shape[1]
-        if bCols:
-            for j in range(nvals):
-                print >> fp, x[j],
-                for i in range(nplot):
-                    print >> fp, ylist[i][j],
-                print >> fp, ""
-            print >> fp, "&"
-        else:
-            for i in range(nplot):
-                for j in range(len(x)):
-                    print >> fp, x[j], ylist[i][j]
-                print >> fp, "&"
-    fp.close()
 
 if __name__ == '__main__':
 
@@ -316,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument('--help_sel', action='store_true', help='Display help for selection texts and exit.')
 
     args = parser.parse_args()
-    time_start=time.clock()
+    time_start=time.time()
 
     if args.help_sel:
         print_selection_help()
@@ -353,15 +314,15 @@ if __name__ == '__main__':
         bMultiRef=False
         top_filename=in_reflist[0]
         ref = md.load(top_filename)
-        print "= = = Loaded single reference file: %s" % (top_filename)
+        print( "= = = Loaded single reference file: %s" % (top_filename) )
         # Load the atom indices over which the atom fit will take place.
         fit_indices = get_indices_mdtraj(top=ref.topology, filename=top_filename, seltxt=fittxt)
-        print "= = = Debug: fit_indices number: %i" % len(fit_indices)
+        print( "= = = Debug: fit_indices number: %i" % len(fit_indices) )
     else:
-        print "= = = Detected multiple reference file inputs."
+        print( "= = = Detected multiple reference file inputs." )
         bMultiRef=True
         if n_refs != n_trjs:
-            print >> sys.stderr, "= = ERROR: When giving multiple reference files, you must have one for each trajecfile file given!"
+            print( "= = ERROR: When giving multiple reference files, you must have one for each trajecfile file given!", file=sys.stderr )
             sys.exit(1)
 
     # = = Load all trajectory data. Notes: Each file's resXH is 1D, vecXH is 3D in (frame, bond, XYZ)
@@ -372,13 +333,13 @@ if __name__ == '__main__':
         if bMultiRef:
             top_filename=in_reflist[i]
             ref = md.load(top_filename)
-            print "= = = Loaded reference file %i: %s" % (i, top_filename)
+            print( "= = = Loaded reference file %i: %s" % (i, top_filename) )
             fit_indices = get_indices_mdtraj( top=ref.topology, filename=top_filename, seltxt=fittxt)
-            print "= = = Debug: fit_indices number: %i" % len(fit_indices)
+            print( "= = = Debug: fit_indices number: %i" % len(fit_indices) )
 
         if bSplitRead:
             # = = = To tackle trajectory files that take too much memory, split into N frames
-            print "= = = Loading trajectory file %s in chunks..." % (in_flist[i])
+            print( "= = = Loading trajectory file %s in chunks..." % (in_flist[i]) )
             nFrames_loc = 0
             for trjChunk in md.iterload(in_flist[i], chunk=nSplitFrames, top=top_filename):
                 trjChunk.center_coordinates()
@@ -394,19 +355,19 @@ if __name__ == '__main__':
                     nFrames_loc += trjChunk.n_frames
                     vecXHfit_loc = np.concatenate( (vecXHfit_loc, tempV2), axis=0 )
 
-                print "= = = ...loaded %i frames so far." % (nFrames_loc)
+                print( "= = = ...loaded %i frames so far." % (nFrames_loc) )
 
-            print "= = = Finished loading trajectory file %s. It has %i atoms and %i frames." % (in_flist[i], trjChunk.n_atoms, nFrames_loc)
-            print vecXHfit_loc.shape
+            print( "= = = Finished loading trajectory file %s. It has %i atoms and %i frames." % (in_flist[i], trjChunk.n_atoms, nFrames_loc) )
+            print( vecXHfit_loc.shape )
             nBonds_loc  = vecXHfit_loc.shape[1]
-	    	    
-	    del trjChunk
+
+            del trjChunk
 
         else:
             # = = = Faster single-step read
-            print "= = = Reading trajectory file %s ..." % (in_flist[i])
+            print( "= = = Reading trajectory file %s ..." % (in_flist[i]) )
             trj = md.load(in_flist[i], top=top_filename)
-            print "= = = File loaded - it has %i atoms and %i frames." % (trj.n_atoms, trj.n_frames)
+            print( "= = = File loaded - it has %i atoms and %i frames." % (trj.n_atoms, trj.n_frames) )
             # = = Run sanity check
             confirm_seltxt(trj, Hseltxt, Xseltxt)
             deltaT_loc = trj.timestep ; nFrames_loc = trj.n_frames
@@ -414,7 +375,7 @@ if __name__ == '__main__':
 
             trj.center_coordinates()
             trj.superpose(ref, frame=0, atom_indices=fit_indices )
-            print "= = = Molecule centered and fitted."
+            print( "= = = Molecule centered and fitted." )
             #msds = md.rmsd(trj, ref, 0, precentered=True)
             vecXHfit_loc = obtain_XHvecs(trj, Hseltxt, Xseltxt)
             nBonds_loc  = vecXHfit_loc.shape[1]
@@ -422,7 +383,7 @@ if __name__ == '__main__':
             del trj
 
         if tau_memory is not None and deltaT > 0.5*tau_memory:
-            print >> sys.stderr, "= = = ERROR: delta-t form the trajectory is too small relative to tau! %g vs. %g" % (deltaT, tau_memory)
+            print( "= = = ERROR: delta-t form the trajectory is too small relative to tau! %g vs. %g" % (deltaT, tau_memory), file=sys.stderr )
             sys.exit(1)
 
         # = = Update overall variables
@@ -431,19 +392,19 @@ if __name__ == '__main__':
             deltaT = deltaT_loc ; nFrames = nFrames_loc ; nBonds = nBonds_loc
         else:
             if deltaT != deltaT_loc or nBonds != nBonds_loc or not np.equal(resXH, resXH_loc):
-                print >> sys.stderr, "= = = ERROR: Differences in trajectories have been detected! Aborting."
-                print >> sys.stderr, "      ...delta-t: %g vs.%g " % (deltaT, deltaT_loc)
-                print >> sys.stderr, "      ...n-bonds: %g vs.%g " % (nBonds, nBonds_loc)
-                print >> sys.stderr, "      ...Residue-XORs: %s " % ( set(resXH)^set(resXH_loc) )
+                print( "= = = ERROR: Differences in trajectories have been detected! Aborting.", file=sys.stderr )
+                print( "      ...delta-t: %g vs.%g " % (deltaT, deltaT_loc), file=sys.stderr )
+                print( "      ...n-bonds: %g vs.%g " % (nBonds, nBonds_loc), file=sys.stderr )
+                print( "      ...Residue-XORs: %s " % ( set(resXH)^set(resXH_loc) ), file=sys.stderr )
 
         vecXHfit.append(vecXHfit_loc)
-        print "     ... XH-vector data added to memory, using 2x %.2f MB" % (  sys.getsizeof(vecXHfit_loc)/1024.0**2.0 )
+        print( "     ... XH-vector data added to memory, using 2x %.2f MB" % (  sys.getsizeof(vecXHfit_loc)/1024.0**2.0 ) )
 
-#        print "= = = Loaded trajectory %s - Found %i XH-vectors %i frames." %  ( in_flist[i], nBonds_loc, vecXH_loc.shape[0] )
+#        print( "= = = Loaded trajectory %s - Found %i XH-vectors %i frames." %  ( in_flist[i], nBonds_loc, vecXH_loc.shape[0] ) )
 
     del vecXHfit_loc
     # = = =
-    print "= = Loading finished."
+    print( "= = Loading finished." )
     vecXHfit=np.array(vecXHfit)
 
     if bPsutil:
@@ -451,16 +412,16 @@ if __name__ == '__main__':
         nFreeMem = 1.0*psutil.virtual_memory()[3]/1024.0**2
         nVecMem = 1.0*sys.getsizeof(vecXHfit)/1024.0**2
         if nFreeMem < 2*nVecMem:
-            print " = = = WARNING: the size of vectors is getting close to the amount of free system memory!"
-            print "    ... %.2f MB used by one vector vecXHfit." % nVecMem
-            print "    ... %.2f MB free system memory." % nFreeMem
+            print( " = = = WARNING: the size of vectors is getting close to the amount of free system memory!" )
+            print( "    ... %.2f MB used by one vector vecXHfit." % nVecMem )
+            print( "    ... %.2f MB free system memory." % nFreeMem )
         else:
-            print " = = = Memoryfootprint debug. vecXHfit uses %.2f MB versus %.2f MB free memory" % ( nVecMem, nFreeMem )
+            print( " = = = Memoryfootprint debug. vecXHfit uses %.2f MB versus %.2f MB free memory" % ( nVecMem, nFreeMem ) )
     else:
-        print "= = = psutil module has not been loaded. Cannot check for memory footprinting."
+        print( "= = = psutil module has not been loaded. Cannot check for memory footprinting." )
 
     if tau_memory != None:
-        print "= = Reformatting all vecXHfit information into chunks of tau ( %g ) " % tau_memory
+        print( "= = Reformatting all vecXHfit information into chunks of tau ( %g ) " % tau_memory )
         vecXHfit = reformat_vecs_by_tau(vecXHfit, deltaT, tau_memory)
 
     # Compress 4D down to 3D for the rest of the calculations to simplify matters.
@@ -471,21 +432,21 @@ if __name__ == '__main__':
     if bDoVecAverage:
         # Note: gs-script normalises along the last axis, after this mean operation
         vecXHfitavg = (gs.normalise_vector_array( np.mean(vecXHfit, axis=0) ))
-        print_xylist(out_pref+'_avgvec.dat', resXH, np.array(vecXHfitavg).T, True)
+        gs.print_xylist(out_pref+'_avgvec.dat', resXH, np.array(vecXHfitavg).T, True)
         del vecXHfitavg
 
     if tau_memory != None:
-        print "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps"
+        print( "= = = Conducting S2 analysis using memory time to chop input-trajectories", tau_memory, "ps" )
         S2 = calculate_S2_by_outerProduct(vecXHfit, deltaT, tau_memory)
     else:
-        print "= = = Conducting S2 analysis directly from trajectories."
+        print( "= = = Conducting S2 analysis directly from trajectories." )
         S2 = calculate_S2_by_outerProduct(vecXHfit)
 
-    print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
-    print "      ...complete."
+    gs.print_xylist(out_pref+'_S2.dat', resXH, (S2.T)*zeta, True )
+    print( "      ...complete." )
 
-    time_stop=time.clock()
+    time_stop=time.time()
     #Report time
-    print "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start)
+    print( "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start) )
 
 sys.exit()

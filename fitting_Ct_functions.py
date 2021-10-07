@@ -151,11 +151,11 @@ def do_LSstyle_fit(num_pars, x, y, dy=[]):
 
 
     ymodel=[ func(x[i], *popt) for i in range(len(x)) ]
-    #print ymodel
+    #print( ymodel )
 
     bExceed=_bound_check(func, popt)
     if bExceed:
-        print >> sys.stderr, "= = = WARNING, curve fitting in do_LSstyle_fit returns a sum>1.//"
+        print( "= = = WARNING, curve fitting in do_LSstyle_fit returns a sum>1.//", file=sys.stderr )
         return 9999.99, popt, np.sqrt(np.diag(popv)), ymodel
     else:
         return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
@@ -204,11 +204,11 @@ def do_Expstyle_fit(num_pars, x, y, dy=[]):
         popt, popv = curve_fit(func, x, y, p0=guess, bounds=bound)
 
     ymodel=[ func(x[i], *popt) for i in range(len(x)) ]
-    #print ymodel
+    #print( ymodel )
 
     bExceed=_bound_check(func, popt)
     if bExceed:
-        print >> sys.stderr, "= = = WARNING, curve fitting in do_LSstyle_fit returns a sum>1.//"
+        print( "= = = WARNING, curve fitting in do_LSstyle_fit returns a sum>1.//", file=sys.stderr )
         return 9999.99, popt, np.sqrt(np.diag(popv)), ymodel
     else:
         return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
@@ -235,7 +235,7 @@ def run_Expstyle_fits(x, y, dy, npars):
     try:
         chi, params, errors, ymodel = do_Expstyle_fit(npars, x, y, dy)
     except:
-        print " ...fit returns an error! Continuing."
+        print( " ...fit returns an error! Continuing." )
 
     return chi, names, params, errors, ymodel
 
@@ -248,13 +248,13 @@ def findbest_Expstyle_fits(x, y, dy=[], bPrint=True, par_list=[2,3,5,7,9], thres
         try:
             chi, params, errors, ymodel = do_Expstyle_fit(npars, x, y, dy)
         except:
-            print " ...fit returns an error! Continuing."
+            print( " ...fit returns an error! Continuing." )
             break
         bBadFit=False
         for i in range(npars):
             if errors[i]>params[i]:
-                print  " --- fit shows overfitting with %d parameters." % npars
-                print  "  --- Occurred with parameter %s: %g +- %g " % (names[i], params[i], errors[i])
+                print(  " --- fit shows overfitting with %d parameters." % npars )
+                print(  "  --- Occurred with parameter %s: %g +- %g " % (names[i], params[i], errors[i]) )
                 bBadFit=True
                 break
         if (not bBadFit) and chi/chi_min < threshold:
@@ -264,13 +264,13 @@ def findbest_Expstyle_fits(x, y, dy=[], bPrint=True, par_list=[2,3,5,7,9], thres
 
     if bPrint:
         names = _return_parameter_names(npar_min)
-        print "= = Found %d parameters to be the minimum necessary to describe curve: chi(%d) = %g vs. chi(%d) = %g)" % (npar_min, npar_min, chi_min,  npars, chi)
+        print( "= = Found %d parameters to be the minimum necessary to describe curve: chi(%d) = %g vs. chi(%d) = %g)" % (npar_min, npar_min, chi_min,  npars, chi) )
         S2_all=1.0
         for i in range(npar_min):
-            print "Parameter %d %s: %g +- %g " % (i, names[i], par_min[i], err_min[i])
+            print( "Parameter %d %s: %g +- %g " % (i, names[i], par_min[i], err_min[i]) )
             if 'S2' in names[i]:
                 S2_all=S2_all*par_min[i]
-        #print "Overall S2: %g" % S2_all
+        #print( "Overall S2: %g" % S2_all )
         # Special case for 2:
         if npar_min == 2:
             S2_all= 1.0 - par_min[0]

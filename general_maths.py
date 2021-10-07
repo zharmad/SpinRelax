@@ -61,8 +61,8 @@ def weighted_average_stdev(values, weights, axis=-1):
     values  in N   dimensions
     weights in N-1 dimensions
     """
-    #print type(values), values.shape
-    #print type(weights), weights.shape
+    #print( type(values), values.shape )
+    #print( type(weights), weights.shape )
     avg   = np.average(values, axis=axis, weights=weights)
     stdev = np.sqrt( np.average( (values-avg)**2.0, axis=axis, weights=weights) )
     return avg, stdev
@@ -96,7 +96,7 @@ def xyz_to_rtp(uv, vaxis=-1, bUnit=False ):
             rtp[0,...] = np.arctan2(uv[1,...], uv[0,...])
             rtp[1,...] = np.arccos(uv[2,...]/rtp[0,...])
         else:
-            print >> sys.stderr, "= = ERROR encountered in vec-to-rtp in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
+            print( "= = ERROR encountered in vec-to-rtp in general_maths.py, vaxis only accepts arguments of -1 or 0 for now.", file=sys.stderr )
     else:
         rtp = np.zeros_like(uv)
         if dims == 1:
@@ -112,7 +112,7 @@ def xyz_to_rtp(uv, vaxis=-1, bUnit=False ):
             rtp[1,...] = np.arctan2(uv[1,...], uv[0,...])
             rtp[2,...] = np.arccos(uv[2,...]/rtp[0,...])
         else:
-            print >> sys.stderr, "= = ERROR encountered in vec-to-rtp in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
+            print( "= = ERROR encountered in vec-to-rtp in general_maths.py, vaxis only accepts arguments of -1 or 0 for now.", file=sys.stderr )
     return rtp
 
 def rtp_to_xyz(rtp, vaxis=-1 , bUnit=False ):
@@ -142,7 +142,7 @@ def rtp_to_xyz(rtp, vaxis=-1 , bUnit=False ):
             uv[1,...]=np.sin(rtp[0,...])*np.sin(rtp[1,...])
             uv[2,...]=np.cos(rtp[1,...])
         else:
-            print >> sys.stderr, "= = ERROR encountered in rtp-to-vec in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
+            print( "= = ERROR encountered in rtp-to-vec in general_maths.py, vaxis only accepts arguments of -1 or 0 for now.", file=sys.stderr )
     else:
         uv = np.zeros_like( rtp )
         if dims == 1:
@@ -158,6 +158,6 @@ def rtp_to_xyz(rtp, vaxis=-1 , bUnit=False ):
             uv[1,...]=rtp[0]*np.sin(rtp[1,...])*np.sin(rtp[2,...])
             uv[2,...]=rtp[0]*np.cos(rtp[2,...])
         else:
-            print >> sys.stderr, "= = ERROR encountered in rtp-to-vec in general_maths.py, vaxis only accepts arguments of -1 or 0 for now."
+            print( "= = ERROR encountered in rtp-to-vec in general_maths.py, vaxis only accepts arguments of -1 or 0 for now.", file=sys.stderr )
 
     return uv

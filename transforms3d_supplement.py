@@ -24,7 +24,7 @@ def decompose_quat(q, axis=-1, bReshape=False):
         q_w = q[0,...]
         q_v = q[1:4,...]
     else:
-        print sys.stderr, "= = = ERROR: decompose_quat does not support arbitrary axis definitions."
+        print( sys.stderr, "= = = ERROR: decompose_quat does not support arbitrary axis definitions." )
         sys.exit(1)
 
     if bReshape and len(q_w.shape)>1:
@@ -126,9 +126,9 @@ def quat_frame_transform(axes):
     #Weak test for orthogonality here. Doesn't work since the second axes can be +-Y
     #q2b=quat_v1v2(arot[1],ref[1])
     #if qops.nearly_equivalent(q2a, q2b) == False:
-    #    print "= = = ERROR in quat_frame_transform, found disagreement between "
-    #    print "      second rotations to bring x/y to X/Y!"
-    #    print q1, q2a, q2b
+    #    print( "= = = ERROR in quat_frame_transform, found disagreement between " )
+    #    print( "      second rotations to bring x/y to X/Y!" )
+    #    print( q1, q2a, q2b )
     #    return -1
     return qops.qmult(q2a,q1)
 
@@ -230,7 +230,7 @@ def quat_reduce_simd(q, qref=(1,0,0,0),axis=-1):
         sgn[sgn==0]=1.0
         return q*sgn[None,:]
     else:
-        print sys.stderr, "= = = ERROR: quat_reduce_simd does not support arbitrary axis definitions!"
+        print( sys.stderr, "= = = ERROR: quat_reduce_simd does not support arbitrary axis definitions!" )
         sys.exit(1)
 
 def quat_reduce(q, qref=(1,0,0,0)):
@@ -289,7 +289,7 @@ def rotate_vector_simd(v, q, axis=-1, bNormalised=False):
     elif axis==0:
         tmp = np.cross(q_v, v, axisa=axis, axisb=axis) + q_w[None,...]*v
     else:
-        print sys.stderr, "= = = ERROR: rotate_vector_simd does not support arbitrary axis definitions."
+        print( sys.stderr, "= = = ERROR: rotate_vector_simd does not support arbitrary axis definitions." )
         sys.exit(1)
     # = = = Determine b
     tmp = np.cross(q_v, tmp, axisa=axis, axisb=axis)

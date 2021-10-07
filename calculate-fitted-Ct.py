@@ -20,22 +20,22 @@ def confirm_seltxt(ref, Hseltxt, Xseltxt):
         t1 = mol.topology.select('name H')
         t2 = mol.topology.select('name HN')
         t3 = mol.topology.select('name HA')
-        print "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3)
+        print( "    .... Note: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3) )
     if len(indX) == 0:
         bError=True
         t1 = mol.topology.select('name N')
         t2 = mol.topology.select('name NT')
-        print "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2)
+        print( "    .... Note: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2) )
     if bError:
         sys.exit(1)
     return indH, indX
 
 def sanity_check_two_list(listA, listB, string, bVerbose=False):
     if not np.all( np.equal(listA, listB) ):
-        print "= = ERROR: Sanity checked failed for %s!" % string
+        print( "= = ERROR: Sanity checked failed for %s!" % string )
         if bVerbose:
-            print listA
-            print listB
+            print( listA )
+            print( listB )
         sys.exit(1)
     return
 
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     #                         'that are not modelled in classical dynamics. '
     #                         'According to Case (1999), this is 0.89~(1.02/1.04)^6 in modelpeptides at MP2 theory.')
 
-    time_start=time.clock()
+    time_start=time.time()
 
     args = parser.parse_args()
     in_file_list = args.in_Ct_fn
@@ -94,13 +94,13 @@ if __name__ == '__main__':
 
     # = = = Read C(t), and averge if more than one
     num_files = len(in_file_list)
-    print "= = = Found %d input C(t) files." % num_files
+    print( "= = = Found %d input C(t) files." % num_files )
     if (num_files == 1):
         legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[0], 'legend')
         legs = [ float(x) for x in legs ]
     else:
-        print "    ...will perform averaging to obtain averaged C(t)."
-        print "    ....WARNING: untested. Please verify!"
+        print( "    ...will perform averaging to obtain averaged C(t)." )
+        print( "    ....WARNING: untested. Please verify!" )
         dt_prev=[] ; Ct_list=[] ; Cterr_list=[]
         for ind in range(num_files):
             legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[ind], 'legend')
@@ -124,8 +124,8 @@ if __name__ == '__main__':
         out_fn = out_pref+'_averageCt.dat'
         fp = open(out_fn, 'w')
         for j in range(npts):
-            print >> fp, dt[i], Ct[j], Cterr[j]
-        print >> fp, '&'
+            print( dt[i], Ct[j], Cterr[j], file=fp )
+        print( '&', file=fp )
         fp.close()
 
     sim_resid = legs
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     out_fn=out_pref+'_fittedCt.dat'
     fp=open(out_fn, 'w')
     for i in range(num_vecs):
-        print "...Running C(t)-fit for residue %i:" % sim_resid[i]
+        print( "...Running C(t)-fit for residue %i:" % sim_resid[i] )
         if len(Cterr)>0:
             dy_loc=Cterr[i]
         if num_comp == -1:
@@ -167,22 +167,22 @@ if __name__ == '__main__':
 
         S2, consts, taus, Sf = fitCt.sort_parameters(num_pars, pars)
         # Print header into the Ct model file
-        print >> fp, '# Residue: %i ' % sim_resid[i]
-        print >> fp, '# Chi-value: %g ' % chi
+        print( '# Residue: %i ' % sim_resid[i], file=fp )
+        print( '# Chi-value: %g ' % chi, file=fp )
         if fmod( num_pars, 2 ) == 1:
-            print >> fp, '# Param %s: %g +- %g' % ('S2_fast', Sf, 0.0)
+            print( '# Param %s: %g +- %g' % ('S2_fast', Sf, 0.0), file=fp )
         else:
-            print >> fp, '# Param %s: %g +- %g' % ('S2_0', S2, 0.0)
+            print( '# Param %s: %g +- %g' % ('S2_0', S2, 0.0), file=fp )
         for j in range(num_pars):
-            print >> fp, "# Param %s: %g +- %g" % (names[j], pars[j], errs[j])
+            print( "# Param %s: %g +- %g" % (names[j], pars[j], errs[j]), file=fp )
         #Print the fitted Ct model into file
-        print >> fp, "@s%d legend \"Res %d\"" % (i*2, sim_resid[i])
+        print( "@s%d legend \"Res %d\"" % (i*2, sim_resid[i]), file=fp )
         for j in range(len(ymodel)):
-            print >> fp, dt[i][j], ymodel[j]
-        print >> fp, '&'
+            print( dt[i][j], ymodel[j], file=fp )
+        print( '&', file=fp )
         for j in range(len(ymodel)):
-            print >> fp, dt[i][j], Ct[i][j]
-        print >> fp, '&'
+            print( dt[i][j], Ct[i][j], file=fp )
+        print( '&', file=fp )
 
         # S2, consts, taus, Sf = sort_parameters(num_pars, pars)
         # Parse parameters
@@ -193,7 +193,7 @@ if __name__ == '__main__':
         errs_list.append(errs)
         ymodel_list.append(ymodel)
 
-    print " = = Completed C(t)-fits."
+    print( " = = Completed C(t)-fits." )
 
 
     #S2 *= zeta
@@ -201,8 +201,8 @@ if __name__ == '__main__':
     #S2 *= 0.89 ; consts = [ k*0.89 for k in consts ]
     #S2_list.append(S2) ; taus_list.append(taus) ; consts_list.append(consts)
 
-    time_stop=time.clock()
+    time_stop=time.time()
     #Report time
-    print "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start)
+    print( "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start) )
 
 sys.exit()

@@ -139,7 +139,7 @@ class diffusionModel:
             self.D_coeff=D_coefficients_symmtop(self.D)
             self.D_delta=0.0
         elif self.name=='rigid_ellipsoid':
-            print >> sys.stderr, "= = ERROR: change_Diso for fully anisotropic models, not implemented."
+            print( "= = ERROR: change_Diso for fully anisotropic models, not implemented.", file=sys.stderr )
             sys.exit(1)
 
 class relaxMeasurement:
@@ -229,7 +229,7 @@ class relaxMeasurement:
 
     def print_omega_names(self):
         for key in self.omegaNames:
-            print key
+            print( key )
 
 class relaxMolecule:
     """
@@ -264,7 +264,7 @@ class relaxMolecule:
         self.vectors=[]
         if kwargs is not None:
             for key, value in kwargs.iteritems():
-                print "%s == %s" % (key, value)
+                print( "%s == %s" % (key, value) )
 
     def num_residues(self):
         return len(self.residues)
@@ -345,7 +345,7 @@ class relaxationModel:
             # Need to update bond length for this atoms
             self.rXH = 1.02e-1
         else:
-            print >> sys.stderr, "= = ERROR in relaxationModel: wrong bondType definition! = =" % bondType
+            print( "= = ERROR in relaxationModel: wrong bondType definition! = =" % bondType, file=sys.stderr )
             sys.exit(1)
 
         # relaxation model. Note in time units of host object.
@@ -383,7 +383,7 @@ class relaxationModel:
         self.omega[iOmH+iOmX] = (self.omega[iOmH]+self.omega[iOmX])
 
     def print_freq_order(self):
-        print "omega=(0, iOmX, iOmH-iOmX, iOmH, iOmH+iOmX )"
+        print( "omega=(0, iOmX, iOmH-iOmX, iOmH, iOmH+iOmX )" )
 
     def set_freq_defined(self, wmin, wmax, wstep):
         self.omega=np.arange(wmin, wmax, wstep)
@@ -530,7 +530,7 @@ class relaxationModel:
             R2p = R2 - 6.5*(0.955/0.87)**2.0*HF
             rho  = 4.0/3.0*R1p/(2.0*R2p-R1p)
             drho = 0
-            print "= = ERROR: drho calculation is not implemented!"
+            print( "= = ERROR: drho calculation is not implemented!" )
             sys.exit(1)
             return (rho, drho)
 
@@ -543,7 +543,7 @@ def _BAIL( functionName, message ):
     """
     Universal failure mode message.
     """
-    print >> sys.stderr, "= = ERROR in function %s : %s" % ( functionName, message)
+    print( "= = ERROR in function %s : %s" % ( functionName, message), file=sys.stderr )
     sys.exit(1)    
 
 def _return_time_fact(tu):
@@ -558,7 +558,7 @@ def _return_time_fact(tu):
     elif tu=='s':
         return 1.0e-0
     else:
-        print >> sys.stderr, "= = ERROR in object definition: invalid time unit definition!"
+        print( "= = ERROR in object definition: invalid time unit definition!", file=sys.stderr )
         return
 
 def _return_dist_fact(du):
@@ -575,7 +575,7 @@ def _return_dist_fact(du):
     elif du=='m':
         return 1.0e-0
     else:
-        print >> sys.stderr, "= = ERROR in relaxationModel: invalid distance unit definition!"
+        print( "= = ERROR in relaxationModel: invalid distance unit definition!", file=sys.stderr )
         return
 
 #Associated functions to assist
@@ -584,7 +584,7 @@ def _sanitise_v(v):
         v=np.array(v)
     sh=v.shape
     if sh[-1] != 3:
-        print >> sys.stderr, "= = ERROR in computation of A and D coefficients (spectral_densities.py): input v does not have 3 as its final dimension!"
+        print( "= = ERROR in computation of A and D coefficients (spectral_densities.py): input v does not have 3 as its final dimension!", file=sys.stderr )
         sys.exit(2)
     return v
 
@@ -886,7 +886,7 @@ def calculate_spectral_density(model, w, *args):
         return J
 
     else:
-        print "= = ERROR: unknown model given to calculate_spectral_density!"
+        print( "= = ERROR: unknown model given to calculate_spectral_density!" )
         return -1
 
 def obtain_HX_frequencies(gamma_X=-27.116e6, DeltaSigma_X=-160e-6, r_XH=1.02e-10, gamma_1H=267.513e6):
@@ -1038,7 +1038,7 @@ def do_dft(t, f):
     dt = t[1]-t[0]
     N = len(t)
     if N != len(f):
-        print >> sys.stderr, "= = ERROR: lengths of time and function to be transformed are not the same!"
+        print( "= = ERROR: lengths of time and function to be transformed are not the same!", file=sys.stderr )
         return -1
 
     om = np.linspace(0.0, np.pi/dt, 1+N/2)
