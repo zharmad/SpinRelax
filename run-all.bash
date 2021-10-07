@@ -92,6 +92,7 @@ refpdb=reference.pdb
 vecStorage=Histogram
 expfn=""
 tpr=topol.tpr
+ixtc=traj_comp.xtc
 # Decide on memory time to use for reorientation time.
 tau_ns=10 ; tau_ps=$(= $tau_ns*1000) ; t100=$(= $tau_ps/100)
 opref=rotdif
@@ -145,9 +146,9 @@ NB:
   -sxtc <filename> : Specify custom filename/location for simulation trajectory used by PLUMED. (Default: $sxtc)
   -xtc_step <N ps> : Explicitly give the time period between successive frames. Otherwise GROMACS will be used to attempt to determine this.
   -genref [\"complete BASH command\"] : Generate solute reference within the script. Optionally replace the default command by giving a complete BASH command as an argument, enclosed in double-quotes \"gmx ... \"
-        (Default: $genref $refpdb $tpr)
+        (Default: $genref_default $refpdb $tpr)
   -gentrj [\"complete BASH command\"] : Generate solute trajectory within the script. Optionally replace the default command by giving a complete BASH command as an argument.
-        (Default: $gentrj $sxtc $tpr)
+        (Default: $gentrj_default $tpr $ixtc $sxtc)
   -pycmd <python-executable> : Change the python command. (Default: $pycmd)
   -plumed <plumed-executable> : Change the plumed command. (Default: $plumed)
   = = Simulation/Experimental Conditions = =
@@ -287,13 +288,14 @@ for path in $foldlist ; do
     [[ "${pfile:0:1}" == "/" ]] && pfile_loc=$pfile || pfile_loc=${path}/${pfile}
     [[ "${qfile:0:1}" == "/" ]] && qfile_loc=$qfile || qfile_loc=${path}/${qfile}
     [[ "${tpr:0:1}" == "/" ]] && tpr_loc=$tpr || tpr_loc=${path}/${tpr}
+    [[ "${ixtc:0:1}" == "/" ]] && tpr_loc=$ixtc || tpr_loc=${path}/${ixtc}
     [[ "${sxtc:0:1}" == "/" ]] && sxtc_loc=$sxtc || sxtc_loc=${path}/${sxtc}
     [[ "$bMultiRef" == "True" ]] && refpdb_loc=${path}/${refpdb} || refpdb_loc=$refpdb
 
     if [ ! -e $qfile_loc ] ; then
         echo "= = $qfile_loc has not been found. Will construct. Checking for existence of reference trajectory and coordinates.."
         if [[ "$bGenRef" == "True" ]] && [ ! -e $refpdb_loc ] ; then
-            [[ "$bGenRefDefault" == "True" ]] && genref_loc="$genref $refpdb_loc $tpr_loc" || genref_loc=$genref
+            [[ "$bGenRefDefault" == "True" ]] && genref_loc="$genref_default $refpdb_loc $tpr_loc" || genref_loc=$genref
             echo "= = = Running reference coordinate generation..."
             echo "      ...using command: $genref_loc"
             $genref_loc
@@ -302,7 +304,7 @@ for path in $foldlist ; do
             echo "= = = Not generating reference coordinates."
         fi
         if [[ "$bGenTraj" == "True" ]] && [ ! -e $sxtc_loc ] ; then
-            [[ "$bGenTrajDefault" == "True" ]] && gentrj_loc="$gentrj $sxtc_loc $tpr_loc" || gentrj_loc=$gentrj_default
+            [[ "$bGenTrajDefault" == "True" ]] && gentrj_loc="$gentrj_default $tpr_loc $ixtc_loc $sxtc_loc $tpr_loc" || gentrj_loc=$gentrj
             echo "= = = Running solute trajectory generation..."
             echo "      ...using command: $gentrj_loc"
             $gentrj_loc

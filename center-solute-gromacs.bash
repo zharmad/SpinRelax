@@ -8,10 +8,6 @@ function assert_file() {
     done
 }
 
-function assert_one(){
-    [[ $# -gt 1 ]] && { echo >&2 "= = There is more than one file! Bailing: $*" ; exit -3 ; }
-}
-
 function gmx_type() {
     if type gmx >& /dev/null ; then echo "5.x" ; elif type mdrun >& /dev/null ; then echo "4.x" ; else echo "none" ; fi
 }
@@ -35,44 +31,41 @@ case $gtyp in
     ;;
 esac
 
-if [ ! $1 ] ; then
+if [ ! $3 ] ; then
     echo "= = (doc) = =
-    Usage: ./script <PDB> [TPR]
+    Usage: ./script <inputTPR> <inputXTC> <outputXTC> [inputNDX]
     Automated Gromacs script for making the solute whole across a trajectory.
-    ...looks by default for a .tpr file in the current trajectory, and picks the first one if there are many.
+    ...If a gromacs index file is not given, look for the first NDX file in the current working directory. 
     ...if the NDX file exists, look for the group \"Solute\" within this file.
     ...If no NDX file exists or no \"Solute\" group present, create a new NDX file called \"solute.ndx\" that excludes waters and ions from the system, assuming that everything else is part of the solute."
     exit
 fi
-oxtc=$1
+tpr=$1
+ixtc=$2
+oxtc=$3
 workwd=$(pwd)
 
-# Look for the first TPR file
-if [ $2 ] ; then
-    tpr=$2
-    assert_file $tpr
+assert_file $ixtc
+assert_file $tpr
+
+if [ $4 ] ; then
+    ndx=$4
 else
-    tpr=$(ls $workwd/*.tpr | head -n 1)
-    assert_file $tpr
-fi
-
-bMakeNDX=True
-ndx=$(ls $workwd/*.ndx | head -n 1)
-if [[ $ndx != "" ]] ; then
-    if grep Solute $ndx ; then
-        echo "= = Group Solute found in $ndx - will use this selection."
-        bMakNDX=False
+    bMakeNDX=True
+    ndx=$(ls $workwd/*.ndx | head -n 1)
+    if [[ $ndx != "" ]] ; then
+        if grep Solute $ndx ; then
+            echo "= = Group Solute found in $ndx - will use this selection."
+            bMakNDX=False
+        fi
     fi
-fi
-if [[ "$bMakeNDX" == "True" ]] ; then
-    ndx=./solute.ndx
-    echo "= = Making $ndx..."
-    $gmxsele -s $tpr -on $ndx -select '"Solute" not group "Water_and_ions"' >& gmx.err || { cat gmx.err >&2 ; exit 1; }
-    assert_file $ndx
-fi
-
-ixtc=$(ls $workwd/*.xtc)
-assert_one $ixtc
+    if [[ "$bMakeNDX" == "True" ]] ; then
+        ndx=./solute.ndx
+        echo "= = Making $ndx..."
+        $gmxsele -s $tpr -on $ndx -select '"Solute" not group "Water_and_ions"' >& gmx.err || { cat gmx.err >&2 ; exit 1; }
+        assert_file $ndx
+    fi
+if
 
 stpr=./solute.tpr
 echo "= = Stage 0/3. Generating solute TPR and compacting."

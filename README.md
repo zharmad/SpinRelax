@@ -11,8 +11,14 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 - [ ] Make a module to contain the header python scripts.
 - [ ] First Refactor code to simplify workflow stages, such as moving bash processing
 to within respective python scripts.
+- [*] v0.2 - Port to Python3.
 - [x] v0.1 - Initial upload of the dirty version using a mixture of
 bash, python, PLUMED2, and optionally GROMACS.
+
+## Workflow changes in October 2021.
+
+- Changed syntax user QoL: center-solute-gromacs.bash 
+- Converted to Python-3. Work in progress.
 
 # General Information
 
