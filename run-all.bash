@@ -146,7 +146,7 @@ NB:
   -sxtc <filename> : Specify custom filename/location for simulation trajectory used by PLUMED. (Default: $sxtc)
   -xtc_step <N ps> : Explicitly give the time period between successive frames. Otherwise GROMACS will be used to attempt to determine this.
   -genref [\"complete BASH command\"] : Generate solute reference within the script. Optionally replace the default command by giving a complete BASH command as an argument, enclosed in double-quotes \"gmx ... \"
-        (Default: $genref_default $refpdb $tpr)
+        (Default: $genref_default $tpr $refpdb)
   -gentrj [\"complete BASH command\"] : Generate solute trajectory within the script. Optionally replace the default command by giving a complete BASH command as an argument.
         (Default: $gentrj_default $tpr $ixtc $sxtc)
   -pycmd <python-executable> : Change the python command. (Default: $pycmd)
@@ -295,7 +295,7 @@ for path in $foldlist ; do
     if [ ! -e $qfile_loc ] ; then
         echo "= = $qfile_loc has not been found. Will construct. Checking for existence of reference trajectory and coordinates.."
         if [[ "$bGenRef" == "True" ]] && [ ! -e $refpdb_loc ] ; then
-            [[ "$bGenRefDefault" == "True" ]] && genref_loc="$genref_default $refpdb_loc $tpr_loc" || genref_loc=$genref
+            [[ "$bGenRefDefault" == "True" ]] && genref_loc="$genref_default $tpr_loc $refpdb_loc" || genref_loc=$genref
             echo "= = = Running reference coordinate generation..."
             echo "      ...using command: $genref_loc"
             $genref_loc

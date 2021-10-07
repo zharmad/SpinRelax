@@ -65,7 +65,7 @@ else
         $gmxsele -s $tpr -on $ndx -select '"Solute" not group "Water_and_ions"' >& gmx.err || { cat gmx.err >&2 ; exit 1; }
         assert_file $ndx
     fi
-if
+fi
 
 stpr=./solute.tpr
 echo "= = Stage 0/3. Generating solute TPR and compacting."

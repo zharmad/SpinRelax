@@ -13,9 +13,9 @@ function assert_file() {
     done
 }
 
-if [ ! $1 ] ; then
+if [ ! $2 ] ; then
     echo "= = (doc) = =
-    General Usage: ./script <PDB> [TPR]
+    General Usage: ./script <TPR> <PDB> [NDX]
     This script automagically creates a reference file from the current folder.
     It first looks for a suitable TPR file, and uses it to generate a PDB file using gromacs
     It then looks for an index file solute.ndx, failing that the first *.ndx, if any. Failing this, generate a solute by exclusing all waters and ions according to Gromacs rules."
@@ -34,30 +34,29 @@ else
     exit -1
 fi
 
-opdb=$1
-if [ $2 ] ; then
-    tpr=$2
-    assert_file $tpr
-else
-    tpr=$(ls ./*.tpr | head -n 1)
-    assert_file $tpr
-fi
+tpr=$1
+assert_file $tpr
+opdb=$2
 
-bMake=True
-if ls solute.ndx >& /dev/null ; then
-    ndx=./solute.ndx
-    check-ndx $ndx Solute && bMake=False
+if [ $3 ] ; then
+    ndx=$3
 else
-    ndx=$(ls *.ndx | head -n 1)
-    check-ndx $ndx Solute && bMake=False
-fi
+    bMake=True
+    if ls solute.ndx >& /dev/null ; then
+        ndx=./solute.ndx
+        check-ndx $ndx Solute && bMake=False
+    else
+        ndx=$(ls *.ndx | head -n 1)
+        check-ndx $ndx Solute && bMake=False
+    fi
 
-if [[ "$bMake" == "True" ]] ; then
-    ndx=./solute.ndx
-    echo "= = No existing Solute group found. Making $ndx..."
-    $gmxsele -s $tpr -on $ndx -select '"Solute" not group "Water_and_ions"' >& gmx.err || { cat gmx.err >&2 ; exit 1; }
-else
-    echo "= = $ndx exists, and group Solute has been found within it."
+    if [[ "$bMake" == "True" ]] ; then
+        ndx=./solute.ndx
+        echo "= = No existing Solute group found. Making $ndx..."
+        $gmxsele -s $tpr -on $ndx -select '"Solute" not group "Water_and_ions"' >& gmx.err || { cat gmx.err >&2 ; exit 1; }
+    else
+        echo "= = $ndx exists, and group Solute has been found within it."
+    fi
 fi
 
 # Create reference molecule with CoG at origin.
