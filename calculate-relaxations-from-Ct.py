@@ -408,7 +408,7 @@ def read_vector_distribution_from_file( fileName ):
     weights = None
     if fileName.endswith('.npz'):
         # = = = Treat as a numpy binary file.
-        obj = np.load(fileName)
+        obj = np.load(fileName, allow_pickle=True )
         # = = = Determine data type
         resIDs = obj['names']
         if obj['bHistogram']:

@@ -46,6 +46,9 @@ def calculate_expectation_value_weighted(func, x, w):
     return avg, sig
 
 def calculate_aniso_nosort(D):
+    """
+    Convert the cartesian elements of diagonalised diffusion tensor ( Dx<= Dy <= Dz ) into anisotropic elements.
+    """
     iso=(D[0]+D[1]+D[2])/3.0
     aniL  = 2*D[2]/(D[1]+D[0])
     rhomL = 1.5*(D[1]-D[0])/(D[2]-0.5*(D[1]+D[0]))
@@ -54,6 +57,10 @@ def calculate_aniso_nosort(D):
     return (iso, aniL, rhomL, aniS, rhomS)
 
 def calculate_anisotropies( D, chunkD=[]):
+    """
+    Convert the cartesian elements of diagonalised diffusion tensor ( Dx<= Dy <= Dz ) into anisotropic elements.   
+    Also compute uncertainties based on sub-dividing the total trajectory into N chunks, if the sub-sections are given.
+    """
     if len(chunkD)==0:
         iso=(D[0]+D[1]+D[2])/3.0
         D_sorted = np.sort(D)
@@ -178,11 +185,16 @@ def obtain_guess_anisotropic(vlist):
     out.append( xdiff/log((vlist[1,3]-0.5)/(vlist[0,3]-0.5)) )
     return out
 
-def build_model(func, args, xvals):
-    out=[]
-    for i in range(len(xvals)):
-        out.append( func(xvals[i], args) )
-    return out
+def build_model_curves(func, args, xvals):
+    """
+    Create set of model curves of shape (Nargs, Nxvals) based on the given 
+    decay-factors and x-values, passing arguments directly to the function.
+    Writen as an manual vectorisation.
+    """
+    d1 = len(args) ; d2=len(xvals)
+    vf = np.vectorize(func)
+    return vf( np.broadcast_to(xvals,(d1,d2)), np.broadcast_to(args,(d2,d1)).T )
+
 
 def obtain_exponential_guess(x, y, C1):
     return (x[0]-x[1])/log((y[1]-C1)/(y[0]-C1))
@@ -195,8 +207,8 @@ def conduct_exponential_fit(xlist, ylist, C0, C1):
     guess=obtain_exponential_guess(xguess, yguess, C1)
     print( '= = = guessed initial tau: ', guess )
     fitOut = fmin_powell(powell_expdecay, guess, args=(xlist, ylist, C0, C1))
-    print( '= = = = Tau obtained: ', fitOut )
-    return fitOut
+    print( '= = = = Tau obtained: ', fitOut[0] )
+    return fitOut[0]
 
 def get_flex_bounds(x, samples, nsig=1):
     """
@@ -245,10 +257,6 @@ def format_header(style_str, tau, taus=[]):
         Dval=0.5e12/tau
         Dvals=0.5e12/taus
         #Dvals=[ [0.5e12/taus[i][j] for j in range(len(taus[i]))] for i in range(len(taus)) ]
-        print( tau )
-        print( taus )
-        print( Dval )
-        print( Dvals )
         for i in range(3):
             bound=get_flex_bounds(tau[i], taus[:,i])
             l.append('# model fit, e_%i tau = %e +- %e %e [ps]'  % (i, bound[0], bound[1], bound[2]))
@@ -311,6 +319,12 @@ def print_model_fits_gen(fname, ydims, str_header, xlist, ylist):
                 print( "&", file=fp )
                 s+=1
             g+=1 ; s=0
+        print("@arrange(%i, %i, 0.1, 0.1, 0.1)" % (2, int(0.5*dim1+0.5)), file=fp)
+        for i in range(dim1):
+            print("@with g%i" % i, file=fp)
+            if i==0:
+                print("@subtitle \"Aggregate Data\"", file=fp)
+            print("@autoscale", file=fp)    
     else:
         print( "= = = Critical ERROR: invalid dimension specifier in print_model_fits_gen!" )
         sys.exit(1)
@@ -414,7 +428,7 @@ if __name__ == '__main__':
                         help='Minimum interval delta_t to calculate in picoseconds [ps].'
                              'This will be calculated as the maximum between the given value '
                              'and the minimum interval found in the dataset.')
-    parser.add_argument('--num_chunk', type=int, dest='num_chunk', default=0,
+    parser.add_argument('--num_chunk', '--num_chunks', type=int, dest='num_chunk', default=0,
                         help='Do some uncertainty estimation by calculating values for subchunks of the given trajectory.'
                              'This reports the standard devation of those subchunks as well as their plots.')
     parser.add_argument('--maxdt','--max_dt', type=float, dest='max_dt', default=1000.0,
@@ -495,12 +509,12 @@ if __name__ == '__main__':
     bFirst=True
     bFirstSub=True
     # = = Main loop over frame intervals.
-    nIntervals=(max_int-min_int)/skip_int+1
+    nIntervals=int(np.floor((max_int-min_int)/skip_int)+1)
     out_dtlist=np.zeros(nIntervals)
     out_isolist=np.zeros(nIntervals)
     out_aniso1list=np.zeros((3,nIntervals))
     out_aniso2list=np.zeros((3,nIntervals))
-    out_qlist=np.zeros((nIntervals,4))
+    out_qlist=np.zeros((4,nIntervals))
     out_moilist=np.zeros((nIntervals,3,3))
     if bDoSubchunk:
         chunk_isolist=np.zeros((num_chunk,nIntervals))
@@ -569,7 +583,7 @@ if __name__ == '__main__':
             # In the PAF frame, the eigenvalues *are* the cartesian components of <r^2>
             out_aniso1list[:,index]=[  1-2*eigval[0],  1-2*eigval[1],  1-2*eigval[2]]
             out_aniso2list[:,index]=[ 1-2*moiR1[0,0], 1-2*moiR1[1,1], 1-2*moiR1[2,2]]
-            out_qlist[index]     = q_rot
+            out_qlist[:,index]     = q_rot
             out_moilist[index]   = moi_axes
 
 
@@ -621,14 +635,13 @@ if __name__ == '__main__':
 
     if bDoIso:
         tau=conduct_exponential_fit(out_dtlist, out_isolist, 1.5, -0.5)
-        model=build_model(isotropic_decay,tau,out_dtlist)
+        model = isotropic_decay(out_dtlist, tau)
+        #model = build_model_curves(isotropic_decay,tau,out_dtlist)
 
         #Check if errors are also to be done.
         if bDoSubchunk:
-            chtaus=[ conduct_exponential_fit(out_dtlist, chunk_isolist[i], 1.5, -0.5)
-                   for i in range(num_chunk) ]
-            chmodels=[ build_model(isotropic_decay,chtaus[i],out_dtlist)
-                     for i in range(num_chunk)]
+            chtaus=[ conduct_exponential_fit(out_dtlist, chunk_isolist[i], 1.5, -0.5) for i in range(num_chunk) ]
+            chmodels=[ isotropic_decay(out_dtlist, chtaus[i]) for i in range(num_chunk)]
             printlist=[[out_isolist, model]]
             for i in range(num_chunk):
                 printlist.append([chunk_isolist[i],chmodels[i]])
@@ -646,27 +659,25 @@ if __name__ == '__main__':
         # Model 1 where the frame is always rotates so as to diagonalise the distribution.
         #taus=[ conduct_exponential_fit(out_dtlist,out_aniso1list[i], 0.5, 0.5)
         #       for i in range(3) ]
-        #models=[ build_model(anisotropic_decay_noc, taus[i], out_dtlist)
+        #models=[ build_model_curves(anisotropic_decay_noc, taus[i], out_dtlist)
         #         for i in range(3) ]
         #print_model_fits_aniso(out_pref+"-aniso1.dat",
         #                 out_dtlist, out_aniso1list, models, taus)
 
         #Model 2 where the frame is rotated to match a particular PAF frame.
-        taus=[ conduct_exponential_fit(out_dtlist,out_aniso2list[i], 0.5, 0.5)
-               for i in range(3) ]
-        taus=np.array(taus)
-        models=[ build_model(anisotropic_decay_noc, taus[i], out_dtlist)
-                 for i in range(3) ]
+        print( "= = = Running exponential fitting of fully anisotropic D..." )
+        taus=np.array([ conduct_exponential_fit(out_dtlist,out_aniso2list[i], 0.5, 0.5) for i in range(3) ])
+        models=build_model_curves(anisotropic_decay_noc, taus, out_dtlist)
         #print_model_fits_aniso(out_pref+"-aniso2.dat",
         #                 out_dtlist, out_aniso2list, models, taus)
         if bDoSubchunk:
+            print( "= = = Running exponential fitting over sub-chunks as well for uncertainty analysis..." )
             chtaus=[[ conduct_exponential_fit(out_dtlist, chunk_aniso2list[i][j], 0.5, 0.5)
                    for j in range(3) ]
                    for i in range(num_chunk) ]
             chtaus=np.array(chtaus)
-            chmodels=[[ build_model(anisotropic_decay_noc,chtaus[i][j],out_dtlist)
-                     for j in range(3) ]
-                     for i in range(num_chunk)]
+            chmodels=[ build_model_curves(anisotropic_decay_noc, chtaus[i], out_dtlist)
+                       for i in range(num_chunk) ]
             file_header=format_header('aniso_err', taus, chtaus)
             file_header.append( format_header_quat(q_frame) )
             printlist=[ np.concatenate((out_aniso2list, models)) ]
@@ -681,7 +692,7 @@ if __name__ == '__main__':
                              file_header, out_dtlist, np.concatenate((out_aniso2list, models)) )
 
         #Print optimal fit quaternions
-        gs.print_xylist(out_pref+"-aniso_q.dat", out_dtlist, out_qlist)
+        gs.print_xylist(out_pref+"-aniso_q.dat", out_dtlist, out_qlist, bCols=True)
 
         #Print axis vectors
         print_axes_as_xyz(out_pref+"-moi.xyz", out_moilist)

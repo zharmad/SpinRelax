@@ -215,7 +215,7 @@ def calculate_Ct_Palmer(vecs):
         print( "= = = ERROR: The input vectors to calculate_Ct_Palmer is not of the expected 4-dimensional form! " % sh, file=sys.stderr )
         sys.exit(1)
 
-    nReplicates=sh[0] ; nDeltas=sh[1]/2 ; nResidues=sh[2]
+    nReplicates=sh[0] ; nDeltas=int(sh[1]/2) ; nResidues=sh[2]
     Ct  = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
     dCt = np.zeros( (nDeltas,nResidues), dtype=vecs.dtype )
     bFirst=True
@@ -272,7 +272,7 @@ def reformat_vecs_by_tau(vecs, dt, tau):
         start=end
     sh = out.shape
     print( "    ...Done. vecs reformatted into %i chunks." % ( nFramesTot/nFramesPerChunk ) )
-    return out.reshape ( (nFramesTot/nFramesPerChunk, nFramesPerChunk, sh[-2], sh[-1]) )
+    return out.reshape( (int(nFramesTot/nFramesPerChunk), nFramesPerChunk, sh[-2], sh[-1]) )
 
 def LS_one(x, S2, tau_c):
     if tau_c > 0.0:
@@ -361,7 +361,7 @@ if __name__ == '__main__':
     bDoVecDistrib=args.bDoVecDistrib
     bDoVecHist=args.bDoVecHist
     histBinX=args.histBin
-    histBinY=histBinX/2
+    histBinY=int(histBinX/2)
     bBinary=args.binary
     if bDoVecHist and not bDoVecDistrib:
         bDoVecDistrib=True
@@ -369,7 +369,7 @@ if __name__ == '__main__':
     if args.vecRotQ!='':
         bRotVec=True
         q_rot = np.array( [ float(v) for v in args.vecRotQ.split() ] )
-        if len(q_rot) != 4 or np.allclose(np.dot(q,q), 1):
+        if len(q_rot) != 4 or not np.allclose(np.dot(q_rot,q_rot), 1):
         #if len(q_rot) != 4 or not q_ops.qisunit(q_rot):
             print( "= = = ERROR: input rotation quaternion is malformed!", q_rot )
             sys.exit(23)

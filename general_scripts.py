@@ -253,7 +253,6 @@ def print_xylist(fn, x, ylist, bCols=False, header=""):
         print( header, file=fp )
     ylist=np.array(ylist)
     shape=ylist.shape
-    print( shape )
     if len(shape)==1:
         for j in range(len(x)):
             print( x[j], ylist[j], file=fp )

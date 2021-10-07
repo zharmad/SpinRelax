@@ -340,31 +340,37 @@ for path in $foldlist ; do
 done
 
 echo
-echo "= Step 2: Generating Global Rotational Diffusion in quaternion notation (aniso_q)..."
-# = = Generate global rotdif. This is only one file regardless of whether there is one or multiple sources. = =
-[[ "$bMulti" == "True" ]] && \
-    { qfile_loc=$qfile_multi ; q_cmd=calculate-dq-distribution-multi.py ; } || \
-    { qfile_loc=$qfile ; q_cmd=calculate-dq-distribution.py ; }
-
-if [ ! -e ${outpref}-aniso_q.dat ] ; then
-    $pycmd $script_loc/$q_cmd \
-        --iso --aniso -f $qfile_loc \
-        -o ${outpref} \
-        --mindt $t100 --skip $t100 --maxdt $tau_ps \
-        --num_chunk $num_chunks
-    assert_file ${outpref}-aniso_q.dat
-else
-    echo "= = = Note: Pre-existing global rotational diffusion data found in ${outpref}-aniso_q.dat, skipping derivations."
-fi
-
-q_loc=$(head -n 1 ${outpref}-aniso_q.dat | awk '{print $2, $3, $4, $5}')
-# Check if external quaternions have been called
-if [[ "$q_ext" == "" ]] ; then
-    echo "= = Using quaternion from 1st dt-interval of trajectory as PAF"
-    quat=$q_loc
-else
+echo "= Step 2: Global Rotational Diffusion in quaternion notation (aniso_q)..."
+if [[ "$q_ext" != "" ]] && [[ "$Diso_ext" != "" ]] && [[ "$Dani_ext" != "" ]] ; then
+    echo "= = NOTE: Ignoring simulation's global rotational diffusion as all required parameters have been given."
     quat=$q_ext
-    echo "= = Ignoring simulation trajectory quaternion: $q_loc"
+    Diso=$Diso_ext
+    Dani=$Dani_ext
+else
+    echo "= = Generating global rotational diffusion data from simulations..."
+    [[ "$bMulti" == "True" ]] && \
+        { qfile_loc=$qfile_multi ; q_cmd=calculate-dq-distribution-multi.py ; } || \
+        { qfile_loc=$qfile ; q_cmd=calculate-dq-distribution.py ; }
+
+    if [ ! -e ${outpref}-aniso_q.dat ] ; then
+        $pycmd $script_loc/$q_cmd \
+            --iso --aniso -f $qfile_loc \
+            -o ${outpref} \
+            --mindt $t100 --skip $t100 --maxdt $tau_ps \
+            --num_chunk $num_chunks
+        assert_file ${outpref}-aniso_q.dat
+    else
+        echo "= = = Note: Pre-existing global rotational diffusion data found in ${outpref}-aniso_q.dat, skipping derivations."
+    fi
+
+    q_loc=$(head -n 1 ${outpref}-aniso_q.dat | awk '{print $2, $3, $4, $5}')
+    # Check again if external quaternions have been given.
+    if [[ "$q_ext" == "" ]] ; then
+        echo "= = Using quaternion from 1st dt-interval of trajectory as PAF"
+        quat=$q_loc
+    else
+        echo "= = Ignoring simulation trajectory quaternion: $q_loc"
+    fi
 fi
 echo "= = Quaternion used: $quat"
 
@@ -373,36 +379,41 @@ echo "= = Quaternion used: $quat"
 # the unique axis points instead along Dx.
 # This preserves the quaternion orientation definition to not worry about axis switching.
 # This will also be accounted for in the relaxation calculations.
-Diso_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Diso | awk -v fact=$D_fact '{print $(NF-3)*1e-12*fact}')
-DaniL_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Dani_L | awk '{print $(NF-2)}')
-DrhoL_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Drho_L | awk '{print $(NF-2)}')
-DaniS_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Dani_S | awk '{print $(NF-2)}')
-DrhoS_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Drho_S | awk '{print $(NF-2)}')
+if [[ "$Dani_ext" == "" ]] || [[ "$Diso_ext" == "" ]] ; then
+    assert_file ${outpref}-aniso2.dat
 
-symmaxis=$(echo $DrhoL_loc $DrhoS_loc | awk '{if ($1<1.0) {
-    print "z"
-} else if ($2<1.0) {
-    print "x"
-} else {
-    print "ERROR"
-}
-}')
-if [[ "$symmaxis" == "z" ]] ; then
-    echo "= = = Long axis ellipsoid detected, pointing along Dz."
-    Dani_loc=$DaniL_loc
-elif [[ "$symmaxis" == "x" ]] ; then
-    echo "= = = Short axis ellipsoid detected, pointing along Dx."
-    Dani_loc=$DaniS_loc
-else
-    echo "= = = ERROR: neither Drho values are less than one in the global rotation diffusion calculation. This is not possible, therefore aborting."
-    exit 1
+    Diso_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Diso | awk -v fact=$D_fact '{print $(NF-3)*1e-12*fact}')
+    DaniL_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Dani_L | awk '{print $(NF-2)}')
+    DrhoL_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Drho_L | awk '{print $(NF-2)}')
+    DaniS_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Dani_S | awk '{print $(NF-2)}')
+    DrhoS_loc=$(head -n 20 ${outpref}-aniso2.dat | grep Drho_S | awk '{print $(NF-2)}')
+
+    symmaxis=$(echo $DrhoL_loc $DrhoS_loc | awk '{if ($1<1.0) {
+        print "z"
+    } else if ($2<1.0) {
+        print "x"
+    } else {
+        print "ERROR"
+    }
+    }')
+    if [[ "$symmaxis" == "z" ]] ; then
+        echo "= = = Long axis ellipsoid detected, pointing along Dz."
+        Dani_loc=$DaniL_loc
+    elif [[ "$symmaxis" == "x" ]] ; then
+        echo "= = = Short axis ellipsoid detected, pointing along Dx."
+        Dani_loc=$DaniS_loc
+    else
+        echo "= = = ERROR: neither Drho values are less than one in the global rotation diffusion calculation. This is not possible, therefore aborting."
+        exit 1
+    fi
+
+    # If an external number is given, then assume that this is all accoutned for.
+    # Use the fact that Dani<1 will inevitably means D_x becomes the unique axis.
+    echo "= = Local symmtop rotational diffusion (@ expt conditions): $Diso_loc $Dani_loc"
+    [[ "$Diso_ext" != "" ]] && Diso=$Diso_ext || Diso=$Diso_loc
+    [[ "$Dani_ext" != "" ]] && Dani=$Dani_ext || Dani=$Dani_loc
 fi
-
-# If an external number is given, then assume that this is all accoutned for.
-# Use the fact that Dani<1 will inevitably means D_x becomes the unique axis.
-echo "= = Local symmtop rotational diffusion (@ expt conditions): $Diso_loc $Dani_loc"
-[[ "$Diso_ext" != "" ]] && Diso=$Diso_ext || Diso=$Diso_loc
-[[ "$Dani_ext" != "" ]] && Dani=$Dani_ext || Dani=$Dani_loc
+echo "= = Global Diffusion Tensors used: $Diso $Dani"
 
 echo
 echo "= Step 3: Generating Local Motion data..."

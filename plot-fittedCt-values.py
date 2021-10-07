@@ -304,7 +304,7 @@ else:
 # = = = specific to the central panel of components: consts and tau
 sc = ax2.scatter(points[:,0], points[:,1], s=points[:,2], c=points[:,3], alpha=1.0, cmap=colorMap, vmin=0.0, vmax=1.0, linewidths=symbolLW, edgecolors=symbolColor)
 ax2.set_yscale('log')
-ax2.set_ylabel('tau-components [%s]' % timeUnits)
+ax2.set_ylabel('$\\tau$ components [%s]' % timeUnits)
 
 if xMin != None or xMax != None:
     ax2.set_xlim( _update_range_if_given( ax2.get_xlim(), xMin, xMax ) )
