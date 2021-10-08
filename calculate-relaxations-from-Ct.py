@@ -434,8 +434,9 @@ def read_vector_distribution_from_file( fileName ):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Read fitted-Ct values and calculation of relaxation parameters'
-                                     'based on a combination of the local autocorrelation and global tumbling by assumption of'
-                                     'separability: Ct= C_internal(t) * C_external(t).',
+                                     'based on a combination of the local autocorrelation and global tumbling by assumption of '
+                                     'separability, i.e.: Ct = C_internal(t) * C_external(t).\n'
+                                     'Global tumbling parameters nmust be given in some form.',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-f', '--infn', type=str, dest='in_Ct_fn',
                         help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')
@@ -467,19 +468,19 @@ if __name__ == '__main__':
                              'Give as "q_w q_x q_y q_z"')
     parser.add_argument('-n', '--nuclei', type=str, dest='nuclei', default='NH',
                         help='Type of nuclei measured by the NMR spectrometer. Determines the gamma constants used.')
-    parser.add_argument('-B', '--B0', type=float, dest='B0', default=-1,
+    parser.add_argument('-B', '--B0', type=float, dest='B0', default=None,
                         help='Magnetic field of the nmr spectrometer in T. overwritten if the frequency is given.')
-    parser.add_argument('-F', '--freq', type=float, dest='Hz', default=-1,
+    parser.add_argument('-F', '--freq', type=float, dest='Hz', default=None,
                         help='Proton frequency of the NMR spectrometer in Hz. Overwrites B0 argument when given.')
     parser.add_argument('--Jomega', action='store_true',
                         help='Calculate Jomega instead of R1, R2, NOE, and rho.')
     parser.add_argument('--tu', '--time_units', type=str, dest='time_unit', default='ps',
                         help='Time units of the autocorrelation file.')
-    parser.add_argument('--tau', type=float, dest='tau', default=np.nan,
+    parser.add_argument('--tau', type=float, dest='tau', default=None,
                         help='Isotropic relaxation time constant. Overwritten by Diffusion tensor values when given.')
     parser.add_argument('--aniso', type=float, dest='aniso', default=1.0,
                         help='Diffusion anisotropy (prolate/oblate). Overwritten by Diffusion tensor values when given.')
-    parser.add_argument('-D', '--DTensor', type=str, dest='D', default='-1',
+    parser.add_argument('-D', '--DTensor', type=str, dest='D', default=None,
                         help='The Diffusion tensor, given as Diso, Daniso, Drhomb.'
                              'Note: In axisymmetric forms, when Daniso < 1 the unique axis is considered to point along x, and'
                              'when Daniso > 1 the unique axis is considered to point along z.')
@@ -524,12 +525,12 @@ if __name__ == '__main__':
     # Set up relaxation parameters.
     nuclei_pair  = args.nuclei
     timeUnit = args.time_unit
-    if args.Hz != -1:
+    if not args.Hz is None:
         B0 = 2.0*np.pi*args.Hz / 267.513e6
-    elif args.B0 != -1:
+    elif not args.B0 is None:
         B0 = args.B0
     else:
-        print( "= = = ERROR: Must give either the background magnetic field or the frequency! E.g., -B0 14.0956", file=sys.stderr )
+        print( "= = = ERROR: Must give either the background magnetic field or the frequency! E.g., --B0 14.0956", file=sys.stderr )
         sys.exit(1)
 
     relax_obj = sd.relaxationModel(nuclei_pair, B0)
@@ -584,8 +585,8 @@ if __name__ == '__main__':
         # When errors are given, 3 dimensions: (nres, R1/R2/NOE, data/error)
 
     #Determine diffusion model.
-    if args.D == '-1':
-        if np.isnan(args.tau):
+    if args.D is None:
+        if args.tau is None:
             diff_type = 'direct'
             Diso = 0.0
         else:
@@ -645,7 +646,6 @@ if __name__ == '__main__':
             resNH = [ int(x)+args.shiftres for x in resNH ]
             bHaveVDist = True
             bHaveDy = True ;# We have an ensemble of vectors now.
-
         elif not args.reffn is None:
             # WARNING: not implemented
             resNH, vecXH = extract_vectors_from_structure( \
