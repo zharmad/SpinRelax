@@ -25,6 +25,6 @@ assert_cmd plumed
 gtype=$(gmx_type)
 case $gtype in
     5.x) echo "= = GROMACS 5.x installed." ;;
-    4.x) echo "= = GROMACS 5.x installed." ;;
+    4.x) echo "= = GROMACS 4.x installed." ;;
     *)   echo "= = GROMACS cannot be found!"
 esac
