@@ -4,21 +4,18 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 
 # Change Log and Expected To-Do list
 
+- [x] v0.2 - Port to Python3. Initial work complete with basiv validation checks.
+- [x] v0.1 - Initial upload of the dirty version using a mixture of bash, python, PLUMED2, and optionally GROMACS.
 *(NB: you'll probably have to bug me about individual ticket items.)*
 - [ ] Support for eulerian-angle input instead of `-q_ext`.
 - [ ] Confirm support for NAMD Quaternion colvars.
 - [ ] Try to remove BASH dependency for other users.
 - [ ] Make a module to contain the header python scripts.
-- [ ] First Refactor code to simplify workflow stages, such as moving bash processing
-to within respective python scripts.
-- [*] v0.2 - Port to Python3.
-- [x] v0.1 - Initial upload of the dirty version using a mixture of
-bash, python, PLUMED2, and optionally GROMACS.
+- [ ] First Refactor code to simplify workflow stages, such as moving bash processing to within respective python scripts.
 
 ## Workflow changes in October 2021.
 
 - Changed syntax user QoL: center-solute-gromacs.bash 
-- Converted to Python-3. Work in progress.
 
 # General Information
 
