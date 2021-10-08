@@ -1,6 +1,25 @@
 import numpy as np
 import sys
 
+def list_identical(u,v):
+    if len(u) != len(v):
+        return False
+    for a, b in zip(u, v):
+        if a != b:
+            return False
+    return True
+
+def array_identical(u, v):
+    """
+    compares whether all elements are equal between two numpy arrays.
+    """
+    if u.shape != v.shape:
+        return False
+    for a, b in zip(u.flat, v.flat):
+        if a != b:
+            return False
+    return True
+
 def ones_except(vec, pos=0):
     """
     Returns a copy of vector with values of 1 everywhere except at the given position.

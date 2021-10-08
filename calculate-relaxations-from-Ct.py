@@ -769,7 +769,7 @@ if __name__ == '__main__':
     else:
         # = = = Sanity Check
         # Compare the two resid_lists.
-        if not np.all( sim_resid == exp_resid ):
+        if not gm.list_identical( sim_resid, exp_resid ):
             print( "= = WARNING: The resids between the simulation and experiment are not the same!", file=sys.stderr )
             print( "...removing elements from the vector files that do not match.", file=sys.stderr )
 
@@ -779,7 +779,7 @@ if __name__ == '__main__':
             shared_resid = np.sort( list( set(sim_resid) & set(exp_resid) ) )
             print( "(resid - shared)", shared_resid )
             fnum_vecs = len( shared_resid )
-            if len(fnum_vecs) == 0:
+            if fnum_vecs == 0:
                 print( "= = ERROR: there is no overlap between experimental and simulation residue indices!", file=sys.stderr )
                 sys.exit(1)
             fnum_vecs = len( shared_resid )
