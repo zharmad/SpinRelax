@@ -40,11 +40,18 @@ def read_from_plumedprint(fname):
                 l = line.split()
                 # Check if this comment line is a header line with FIELD.
                 if l[1]=="FIELDS":
-                    nfields=len(l)
-                    for i in range(2,nfields):
-                        field_names.append(l[i])
-                    nfields=len(field_names)
-                    bHeaderRead=True
+                    if bHeaderRead:
+                        field_names_comp=[ l[i] for i in range(2,len(l)) ]
+                        for a,b in zip(field_names, field_names_comp):
+                            if a != b:
+                                print( '= = ERROR: Multiple FIELD headers are present to indicate parallel trajectoreies, but their entries do not agree!' ) 
+                                print( field_names )
+                                print( field_names_comp )
+                                return -1
+                    else:
+                        field_names=[ l[i] for i in range(2,len(l)) ]
+                        nfields=len(field_names)
+                        bHeaderRead=True
                 continue
 
             # The default behaviour is now a data line.
@@ -54,7 +61,8 @@ def read_from_plumedprint(fname):
                 return -1
             l = line.split()
             if len(l) != nfields:
-                print( '= = ERROR: Data-like line does not have the same number of fields as defined in FIELDS!' )
+                print( '= = ERROR: Data-like line does not have the same number of fields as defined in FIELDS! ( %i )' % (nfields) )
+                print( l )
                 return -1
             for i in range(len(l)):
                 parsed_data.append(np.float32(l[i]))
@@ -65,9 +73,7 @@ def read_from_plumedprint(fname):
     if nempty > 0:
         print( '= = = NOTE: There are %i empty lines' % nempty )
     print( '= = = %i field entries discovered. Field entries are as follows:' % nfields )
-    for i in range(nfields):
-        print( '%s '% field_names[i], )
-    print( '' )
+    print( str(field_names).strip('[]') )
 
     # Now reshape parsed_data to match the lines read and the total number of fields.
     parsed_data=np.reshape(parsed_data, (nfields,ndata), order='F')
