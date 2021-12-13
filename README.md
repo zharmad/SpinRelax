@@ -96,10 +96,10 @@ Fitting to experiment is done at this stage.
 
 # Example invocations
 
-1. *Naive run*
+## 1. *Naive run*
 ```
 run-all.bash -Temp_MD 300 -Temp_Exp 297 -D2O_Exp 0.09 -Bfields 700.303
-
+```
 
 This is a simple invocation case (and probably most dangerous),
 leaving the bash script to look for software/data
@@ -108,7 +108,7 @@ in simulations needs to be tuned from the existing 300K
 to match experimental conditions at 297K and 9%-D2O concentration,
 and measured at a proton frequency of 700 MHz.
 
-2. *Replacing the global tumbling with external knowledge*
+## 2. *Replacing the global tumbling with external knowledge*
 ```
 run-all.bash -reffile ../ref-1ubq.pdb -Temp_Exp 297 -D2O_Exp 0.09 -D_ext 3.7383e-5 1.26006 -q_ext 0.866165 0.392069 -0.308123 -0.033159
 ```
@@ -118,7 +118,7 @@ from HYDRONMR or coarse-grained simulations, or have fitted experimental values 
 An external reference file is supplied, containing the atoms corrresponding to the centered-solute trajectory
 and occupancy of 1.0 to ask PLUMED to include this atom in the quaternion orientation frame.
 
-3. *Fitting to experimental data*
+## 3. *Fitting to experimental data*
 ```
 run-all.bash -reffile ../ref-1ubq.pdb -Temp_Exp 297 -D2O_Exp 0.09 -D_ext 3.7383e-5 1.26006 -q_ext 0.866165 0.392069 -0.308123 -0.033159 -expfile ./expt-R1R2NOE.dat -fit DisoS2
 ```
@@ -126,7 +126,7 @@ run-all.bash -reffile ../ref-1ubq.pdb -Temp_Exp 297 -D2O_Exp 0.09 -D_ext 3.7383e
 Building up from the previous example, one adds the location of the experimental relaxation file,
 and attempts to tune D_iso and zeta-corrections in order to minimise the global chi-deviation.
 
-4. *Starting from other programs with a known quaternion trajectory already computed*
+## 4. *Starting from other programs with a known quaternion trajectory already computed*
 ```
 run-all.bash -reffile reference.pdb -qfile colvar-qorient -sxtc solute-centered.dcd
 ```
@@ -145,7 +145,7 @@ into the following file format, with no empty lines.
  500000.000000         0.148932         0.149478        -0.976888       -0.0341421
 ```
 
-5. *Some large system with multiple independent MD trajectories*
+## 5. *Some large system with multiple independent MD trajectories*
 ```
 run-all.bash -folders folder_list -num_chunks 5 -t_mem 50 -reffile /absolute/path/ref.pdb -Temp_MD 300 -Temp_Exp 288 -D2O_Exp 0.10 -D_ext ...(etc.)
 run-all.bash -folders folder_list -num_chunks 5 -t_mem 50 -multiref -reffile ref.pdb -Temp_MD 300 -Temp_Exp 288 -D2O_Exp 0.10 -D_ext ...(etc.)
@@ -173,16 +173,10 @@ idea in NMR, where the MD timescales hidden by global tumbling should be exclude
 in the analysis.
 
 
-6. [WIP] Residue-specific chemical-shift anisotropy fitting.
+## 6. [WIP] Residue-specific chemical-shift anisotropy fitting.
 
-After everything is run, alter the fitting strategy to 'new'
-
-python $HOME/scripts/SpinRelax/calculate-relaxations-from-Ct.py \
-    -f ./rotdif-10ns_fittedCt.dat \
-    --distfn rotdif-10ns_vecHistogram.npz \
-    -e ./expt/R1R2NOE_600.dat \
-    -F 600.133e6 \
-    --opt new \
-    -D "5e-5 1.4" \
-    --csa ./expt/test-CSA-input.dat \
-    -o ./temp
+After everything is setup, alter the fitting strategy to "new" and rerun the final python fitting scripts. Here is an example run line:
+```
+python <SpinRelax>/calculate-relaxations-from-Ct.py -f ./rotdif-10ns_fittedCt.dat --distfn rotdif-10ns_vecHistogram.npz -e ./expt/R1R2NOE_600.dat -F 600.133e6 --opt new -D "5e-5 1.4" --csa ./expt/test-CSA-input.dat -o ./temp
+```
+The CSA argument is given as a file here, containing two columns of residue-ID followed by residue-specific initial guesses. This is not necessary, as the argument also accepta a custom value or the default -170 ppm for N. The fitted values will then be contained in a separate file <prefix>_CSA_values.dat
