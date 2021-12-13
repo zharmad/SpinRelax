@@ -4,7 +4,8 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 
 # Change Log and Expected To-Do list
 
-- [x] v0.2 - Port to Python3. Initial work complete with basiv validation checks.
+- [x] v0.21 - Initial groundwork on residue-specific CSA fittings.
+- [x] v0.2 - Port to Python3. Initial work complete with basic validation checks.
 - [x] v0.1 - Initial upload of the dirty version using a mixture of bash, python, PLUMED2, and optionally GROMACS.
 *(NB: you'll probably have to bug me about individual ticket items.)*
 - [ ] Support for eulerian-angle input instead of `-q_ext`.
@@ -171,3 +172,17 @@ Note that `-t_mem 50` sets the **memory time** to 50 ns. This is an subtle but i
 idea in NMR, where the MD timescales hidden by global tumbling should be excluded
 in the analysis.
 
+
+6. [WIP] Residue-specific chemical-shift anisotropy fitting.
+
+After everything is run, alter the fitting strategy to 'new'
+
+python $HOME/scripts/SpinRelax/calculate-relaxations-from-Ct.py \
+    -f ./rotdif-10ns_fittedCt.dat \
+    --distfn rotdif-10ns_vecHistogram.npz \
+    -e ./expt/R1R2NOE_600.dat \
+    -F 600.133e6 \
+    --opt new \
+    -D "5e-5 1.4" \
+    --csa ./expt/test-CSA-input.dat \
+    -o ./temp
