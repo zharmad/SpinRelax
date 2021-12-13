@@ -550,13 +550,14 @@ if __name__ == '__main__':
                              '  (1) Diso - global tumbling rate,\n'
                              '  (2) S2   - The zeta-prefactor representing contribution of zero-point vibrations,\n'
                              '  (3) CSA  - The mean chemical-shift anisotropy of the heavy nucleus.\n'
-                             'Using each will treat the input D_iso as an initial estimate.\n'
-                             'Valid inputs: Diso, DisoS2, DisoCSA, DisoS2CSA, none.')
+                             '  (4) new  - WIP fitting for residue-specific chemical-shift anisotropy.\n'
+                             'Using each will treat input values as an initial estimate.\n'
+                             'Valid inputs: Diso, DisoS2, DisoCSA, DisoS2CSA, new, none.')
     parser.add_argument('--cycles', type=int, default=100,
                         help='For the new per-residue CSA fitting algorithm, do a maximum of N cycles between the global Diso versus the local CSA fits. '
                              'Each cycle begins by optimising Diso over all residues, then optimising each CSA separately against the new global value. '
                              'An additional convergence graph will be created.')
-    parser.add_argument('--tol', type=float, default=1e-5,
+    parser.add_argument('--tol', type=float, default=1e-6,
                         help='The tolerance criteria for terminating the global/local optimisation cycles early, as a fractional change.')
     parser.add_argument('--rigid', dest='bRigid', action='store_true',
                         help='Compute the spin-relaxation corresponding to a rigid sphere with rotational diffusion coefficient D_iso/tau_iso, then exit.')
@@ -885,9 +886,8 @@ if __name__ == '__main__':
             Diso_init = Diso
 
         if  optMode == 'new':
-            print( "= = Conducting the global-local refinement... this may take a while." )
-
-            DisoOpt           = Diso_init 
+            print( "= = Conducting global-Diso + local-CSA refinement... this may take a while." )
+            DisoOpt    = Diso_init 
             fCSAsOpt   = np.copy(fCSAs)
             fCSAsChiSq = np.zeros( fnum_vecs, dtype=np.float32 )
             DisoPrev = None ; fCSAsPrev = None
@@ -899,8 +899,10 @@ if __name__ == '__main__':
             for r in range(nRefinementCycles):
                 # = = = Global Stage
                 out = fmin_powell(optfunc_R1R2NOE_Diso, x0=DisoOpt, direc=[0.1*DisoOpt], \
-                    args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, CSAvaluesArray, expblock), full_output=True )
+                    args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, fCSAsOpt, expblock), full_output=True )
                 DisoOpt = out[0] ; ChiSqDiso = out[1]
+                #relax_obj.rotdifModel.change_Diso( DisoOpt )
+                #print( relax_obj.rotdifModel.D, DisoOpt )
                 #DisoValuesAll[r] = DisoOpt
                 #DisoChiSqAll[r]  = ChiSqDiso
                 if (not bFirst) and np.allclose(DisoOpt, DisoPrev, rtol=refinementTolerance):
@@ -934,7 +936,7 @@ if __name__ == '__main__':
                       values=np.multiply(param_scaling, (DisoOpt, 1.0, np.nan, np.sqrt(ChiSqDiso)) ),
                       units=param_units,
                       bFit=(True, False, False, True) )
-            optHeader=optHeader+"\n# See %s_CSA_values.xvg for individual CSA optimisations." % out_pref
+            optHeader=optHeader+"\n# See %s_CSA_values.dat for individual CSA optimisations." % out_pref
             print( optHeader )
 
             # = = = Copy back over to overall array
@@ -943,7 +945,7 @@ if __name__ == '__main__':
                     CSAvaluesArray[j] = fCSAsOpt[i]
             else:
                 CSAvaluesArray = fCSAsOpt
-            gs.print_xy(out_pref+'_CSA_values.xvg', sim_resid, CSAvaluesArray )
+            gs.print_xy(out_pref+'_CSA_values.dat', sim_resid, CSAvaluesArray )
 
         elif optMode == 'DisoS2CSA':
             print( "= = Fitting both Diso, S2, as well as average CSA.." )
