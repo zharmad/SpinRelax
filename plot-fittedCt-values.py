@@ -1,5 +1,6 @@
 import sys, argparse
 import numpy as np
+import fitting_Ct_functions as fitCt
 
 #import matplotlib
 #matplotlib.use('Agg')
@@ -20,124 +21,6 @@ plt.ioff()
 # Param C_g: 0.500372 +- 0.00280338
 # Param tau_g: 1150.16 +- 8.33356
 
-class fitParams:
-    def __init__(self, name, S2_slow=None, S2_fast=None, components=[]):
-        self.name   = str(name)
-        self.nParameters = 0
-        self.nComponents = 0
-        self.components = []
-
-        if S2_slow != None:
-            self.add_S2(S2_slow)
-        else:
-            self.S2_slow = None
-
-        if S2_fast != None:
-            self.add_S2(S2_fast, bFast=True)
-        else:
-            self.S2_fast = None
-
-        self.add_transient_components( components )
-
-
-    def do_checksum(self):
-        s=0
-        if self.nComponents>0:
-            tmp = self.S2_slow + self.S2_fast + np.sum(self.components[:][0])
-        else:
-            tmp = self.S2_slow + self.S2_fast
-        return ( np.isclose( tmp, 1.0, rtol=1e-6 ) )
-
-    def add_S2(self, value, bFast=False):
-        if bFast:
-            self.S2_fast = value
-            self.nParameters += 1
-        else:
-            self.S2_slow = value
-            self.nParameters += 1
-
-    def add_transient_component(self, const, tau):
-        self.components.append( [const, tau] )
-        self.nComponents += 1
-        self.nParameters += 2
-
-    def add_transient_components(self, comp, tau=None):
-        """
-        Overloaded to take both a single 2D-array and two 1D-arrays.
-        The single 2D array should be of shape (nComponents, 2).
-        """
-        if tau == None:
-            for e in comp:
-                self.add_transient_component(e[0], e[1])
-        else:
-            if len(consts) != len(taus):
-                print( "= = = ERROR in fitParams.add_transient_components: constants and taus lists do not have the same length!", file=sys.stderr )
-                sys.exit(1)
-            for c, t in zip(consts, taus):
-                self.add_transient_component(c, t)
-
-    def report(self):
-        print( "Name: %s" % self.name )
-        if self.S2_fast != None:
-            print( "  S2_fast: %g" % self.S2_fast )
-        for i, s in enumerate(self.components):
-            print( "  component %i , const.: %g " % (i, s[0]) )
-            print( "  component %i , tau: %g " % (i, s[1]) )
-        if self.S2_slow != None:
-            print( "  S2_0: %g" % self_S2_slow )
-
-def _get_key( index, var ):
-    return str(index)+"-"+var
-
-def read_fittedCt_parameters(fileName):
-    out = []
-    index  = None ; S2_slow = None ; S2_fast = None
-    tmpC   = {} ; tmpTau = {}
-    bParamSection=False
-    with open(fileName) as fp:
-        for line in fp.readlines():
-            if line.startswith("#"):
-                l = line.split()
-                if l[1].startswith("Residue"):
-                    if bParamSection:
-                        print( "= = = ERROR in read_fittedCt_parameters: New parameter section detected when old parameter section is still being read! %s " % fileName, file=sys.stderr )
-                        sys.exit(1)
-                    bParamSection=True
-                    # = = Mark beginning of parameters
-                    index = str(l[-1])
-                elif l[1].startswith("Param"):
-                    parName=l[2]
-                    value=float(l[-3])
-                    error=float(l[-1])
-                    if parName.startswith("S2_0"):
-                        S2_slow = value
-                    elif parName.startswith("S2_fast"):
-                        S2_fast = value
-                    elif parName.startswith("C_"):
-                        tmpKey = _get_key(index, parName[2])
-                        #print( tmpKey, value )
-                        tmpC[tmpKey]=value
-                    elif parName.startswith("tau_"):
-                        tmpKey = _get_key(index, parName[4])
-                        #print( tmpKey, value )
-                        tmpTau[tmpKey]=value
-                    else:
-                        # = = Comment line not containing relevant parameters.
-                        continue
-            else:
-                # = = Mark end of parameters with anything that is not a comment, including an empty line.
-                if bParamSection:
-                    comp=[]
-                    for k in tmpC.keys():
-                        comp.append( [ tmpC[k], tmpTau[k] ] )
-                    fit = fitParams(name=index, S2_fast=S2_fast, S2_slow=S2_slow, components=comp )
-                    out.append( fit )
-                    bParamSection=False
-                    tmpC={} ; tmpTau={} ; S2_fast=None ; S2_slow=None ; index=None
-                continue
-
-    # = = = Read finished.
-    return out
 
 def _determine_point_size(frac, sizeMin, sizeMax):
     return (sizeMin+frac*(sizeMax-sizeMin))**2.0
@@ -196,7 +79,7 @@ parser.add_argument('--title', type=str, default=None,
 
 args = parser.parse_args()
 bVerbose = args.bVerbose
-paramList = read_fittedCt_parameters(args.inFile)
+paramList = fitCt.read_fittedCt_parameters(args.inFile)
 print( "= = = Read %s and found %i sets of parameters." % (args.inFile, len(paramList)) )
 
 timeUnits=args.tu
