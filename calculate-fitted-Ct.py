@@ -97,14 +97,14 @@ if __name__ == '__main__':
     print( "= = = Found %d input C(t) files." % num_files )
     if (num_files == 1):
         legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[0], 'legend')
-        legs = [ float(x) for x in legs ]
+        legs = [ int(x) for x in legs ]
     else:
         print( "    ...will perform averaging to obtain averaged C(t)." )
         print( "    ....WARNING: untested. Please verify!" )
         dt_prev=[] ; Ct_list=[] ; Cterr_list=[]
         for ind in range(num_files):
             legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[ind], 'legend')
-            legs = [ float(x) for x in legs ]
+            legs = [ int(x) for x in legs ]
             dt_prev=dt ; Ct_list.append(Ct) ; Cterr_list.append(Cterr)
         # = = = Ct_list is a list of 2D arrays.
         # = = = Perform grand average over individual observations. Assuming equal weights (dangerous!)
