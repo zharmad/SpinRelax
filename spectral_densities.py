@@ -324,7 +324,7 @@ class relaxationModel:
 
     def __init__(self, bondType, B_0):
         # Parameters associated with units
-        self.omega=np.array(0.0)
+        self.omega=None
         self.timeUnit='ns'
         self.time_fact=_return_time_fact(self.timeUnit)
         self.dist_unit='nm'
@@ -350,6 +350,7 @@ class relaxationModel:
 
         # relaxation model. Note in time units of host object.
         self.set_rotdif_model('rigid_sphere_T', 1.0)
+        self.set_freq_relaxation()
 
     def set_B0(self, B_0):
         self.B_0 = B_0
@@ -382,8 +383,13 @@ class relaxationModel:
         self.omega[iOmH-iOmX] = (self.omega[iOmH]-self.omega[iOmX])
         self.omega[iOmH+iOmX] = (self.omega[iOmH]+self.omega[iOmX])
 
-    def print_freq_order(self):
-        print( "omega=(0, iOmX, iOmH-iOmX, iOmH, iOmH+iOmX )" )
+    def print_frequencies(self):
+        """
+        Report the ferquency order as a debug.
+        """
+        print("# Order of frequencies for %s - %s relaxation:" % (self.gX.name, self.gH.name) )
+        print("# 0  iOmX    iOmH-iOmX   iOmH    iOmH+iOmX" )
+        print( self.omega )
 
     def set_freq_defined(self, wmin, wmax, wstep):
         self.omega=np.arange(wmin, wmax, wstep)

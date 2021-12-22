@@ -343,7 +343,6 @@ def print_fitting_params_headers( names, values, units, bFit ):
 # # Chi-value: 1.15659e-05
 # # Param XXX: ### +- ###
 def read_fittedCt_file(filename):
-
     resid=[]
     param_name=[]
     param_val=[]
@@ -559,9 +558,12 @@ if __name__ == '__main__':
                              'An additional convergence graph will be created.')
     parser.add_argument('--tol', type=float, default=1e-6,
                         help='The tolerance criteria for terminating the global/local optimisation cycles early, as a fractional change.')
-    parser.add_argument('--rigid', dest='bRigid', action='store_true',
-                        help='Compute the spin-relaxation corresponding to a rigid sphere with rotational diffusion coefficient D_iso/tau_iso, then exit.')
-
+    parser.add_argument('--theoretical', dest='bTheoretical', action='store_true',
+                        help='Compute the theoretical spin relaxations corresponding to a rigid sllipsoid model and no internal autocorrelation motions. '
+                             'Script exits immediately after reporting, and no fitting functionality is coded.'
+                             'Two use cases are possible: '
+                             '(1) Rigid sphere relxation. '
+                             '(2) Axisymmetric diffusion, if vector directions are given.')
 
     time_start=time.time()
 
@@ -581,6 +583,8 @@ if __name__ == '__main__':
     zeta = args.zeta
     if zeta != 1.0:
         print( " = = Applying scaling to add zero-point QM vibrations (zeta) of %g" % zeta )
+
+
     # Set up relaxation parameters.
     nuclei_pair  = args.nuclei
     timeUnit = args.time_unit
@@ -599,11 +603,9 @@ if __name__ == '__main__':
     # = = = Set up the relaxation information from library.
     relax_obj = sd.relaxationModel(nuclei_pair, B0)
     relax_obj.set_time_unit(timeUnit)
-    relax_obj.set_freq_relaxation()
     print( "= = = Setting up magnetic field:", B0, "T" )
     print( "= = = Angular frequencies in ps^-1 based on given parameters:" )
-    relax_obj.print_freq_order()
-    print( relax_obj.omega )
+    relax_obj.print_frequencies()
     print( "= = = Gamma values: (X) %g , (H) %g" % (relax_obj.gX.gamma, relax_obj.gH.gamma) )
 
     #Check if the experimental file is given
@@ -719,7 +721,7 @@ if __name__ == '__main__':
                 bHaveVDist = True
                 bHaveDy = True
 
-        elif not args.bRigid:
+        elif not args.bTheoretical:
             print( "= = = ERROR: non-spherical diffusion models require a vector source! "
                    "Please supply the average vectors or a trajectory and reference!", file=sys.stderr )
             sys.exit(1)
@@ -733,7 +735,7 @@ if __name__ == '__main__':
 
 # = = = Now that the basic stats habe been stored, check for --rigid shortcut.
 #       This shortcut will exit after this if statement is run.
-    if args.bRigid:
+    if args.bTheoretical:
         if diff_type == 'direct':
             print( "= = = ERROR: Rigid-sphere argument cannot be applied without an input for the global rotational diffusion!", file=sys.stderr )
             sys.exit(1)
@@ -754,7 +756,7 @@ if __name__ == '__main__':
 
 # = = = Read fitted C(t). For each residue, we expect a set of parameters
 #       corresponding to S2 and the other parameters.
-    sim_resid, param_names, param_vals = read_fittedCt_file(fittedCt_file)
+    sim_resid, param_names, param_vals = read_fittedCt_file( fittedCt_file )
     if len(sim_resid) == 0:
         print( "= = = ERROR: The fitted-Ct file %s was read, but did not yield any usable parameters!" % fittedCt_file )
         sys.exit(1)
