@@ -79,8 +79,8 @@ parser.add_argument('--title', type=str, default=None,
 
 args = parser.parse_args()
 bVerbose = args.bVerbose
-paramList = fitCt.read_fittedCt_parameters(args.inFile)
-print( "= = = Read %s and found %i sets of parameters." % (args.inFile, len(paramList)) )
+listParams = fitCt.read_fittedCt_parameters(args.inFile)
+print( "= = = Read %s and found %i sets of parameters." % (args.inFile, len(listParams)) )
 
 timeUnits=args.tu
 sizeMin=args.smin
@@ -110,41 +110,40 @@ else:
     colorMap
 
 if bVerbose:
-    for x in paramList:
+    for x in listParams:
         x.report()
 
-sumPoints = sum([ x.nComponents for x in paramList])
+sumPoints = sum([ x.nComps for x in listParams])
 print( "= = = ..,with a total count of %i transient components." % sumPoints )
+
+# = = = = Assemble each component
 
 posX=[]
 posY=[]
 points = []
 S2slow = []
 S2fast = []
-for p in paramList:
+for p in listParams:
     resid = float(p.name)
     if args.sequence is None and not args.xshift is None:
         resid += float(args.xshift)
 
-    tmpS2s = p.S2_slow if p.S2_slow != None else 0.0
-    tmpS2f = p.S2_fast if p.S2_fast != None else 0.0
+    tmpS2s = p.S2
+    tmpS2f = p.calc_S2Fast()
 
-    for c in p.components:
-        tau   = c[1]
-        const = c[0]
+    for C, tau in zip(p.C,p.tau):
         # = = = Segment to shift components into order parameters if the timescales are clearly overfitted.
         bShifted=False
         if bDoTauShift:
             if tauMin != None and tau < tauMin:
                 bShifted=True
-                tmpS2f += const
+                tmpS2f += C
             elif tauMax != None and tau > tauMax:
                 bShifted=True
-                tmpS2s += const
-
+                tmpS2s += C
         if not bShifted:
-            size  = _determine_point_size(const, sizeMin, sizeMax)
-            points.append( [resid,tau,size,const] )
+            size  = _determine_point_size( C, sizeMin, sizeMax)
+            points.append( [resid,tau,size,C] )
 
     # = = = Compute modified order parameters with any tau components shifted into this.
     S2slow.append( [resid, tmpS2s, _determine_point_size(tmpS2s, sizeMin, sizeMax)] )

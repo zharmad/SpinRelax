@@ -108,13 +108,13 @@ if __name__ == '__main__':
             dt_prev=dt ; Ct_list.append(Ct) ; Cterr_list.append(Cterr)
         # = = = Ct_list is a list of 2D arrays.
         # = = = Perform grand average over individual observations. Assuming equal weights (dangerous!)
-        Ct_list = np.array(Ct_list)
+        Ct_list = np.array(Ct_list, dtype=float)
         Ct = np.mean(Ct_list, axis=0)
         if len(Cterr_list[0]) == 0:
             Cterr = np.std(Ct_list, axis=0)
         else:
             shape=Ct.shape
-            Cterr_list = np.array(Cterr_list)
+            Cterr_list = np.array(Cterr_list, dtype=float)
             Cterr = np.zeros(shape)
             for i in range(shape[0]):
                 for j in range(shape[1]):
@@ -139,59 +139,40 @@ if __name__ == '__main__':
     num_comp=args.nc
     bUseSFast=(not args.bNoFast)
     dy_loc=[]
-    chi_list=[] ; names_list=[] ; pars_list=[] ; errs_list=[] ; ymodel_list=[]
 
     out_fn=out_pref+'_fittedCt.dat'
     fp=open(out_fn, 'w')
+    obj = fitCt.fitParams()
     for i in range(num_vecs):
+        obj.name = str(sim_resid[i])
         print( "...Running C(t)-fit for residue %i:" % sim_resid[i] )
         if len(Cterr)>0:
             dy_loc=Cterr[i]
         if num_comp == -1:
             # Automatically find the best number of parameters
             if bUseSFast:
-                #chi, names, pars, errs, ymodel = fitCt.findbest_LSstyle_fits(x[i], y[i], dy[i])
-                chi, names, pars, errs, ymodel = fitCt.findbest_Expstyle_fits(dt[i], Ct[i], dy_loc,
-                                             par_list=[2,3,5,7,9], threshold=1.0)
+                obj.optimised_curve_fitting( dt[i], Ct[i], dy_loc, listDoG=[2,3,5,7,9], chiSqThreshold=0.5 )
             else:
-                chi, names, pars, errs, ymodel = fitCt.findbest_Expstyle_fits(dt[i], Ct[i], dy_loc,
-                                             par_list=[2,4,6,8], threshold=1.0)
-            num_pars=len(names)
+                obj.optimised_curve_fitting( dt[i], Ct[i], dy_loc, listDoG=[2,4,6,8], chiSqThreshold=0.5 )
         else:
             # Use a specified number of parameters
             if bUseSFast:
-                num_pars=2*nc+1
+                obj.nParams = 2*nc+1
             else:
-                num_pars=2*nc
-            chi, names, pars, errs, ymodel = fitCt.run_Expstyle_fits(dt[i], Ct[i], dy_loc, num_pars)
+                obj.nParams = 2*nc
+            obj.conduct_curve_fitting(dt[i], Ct[i], dy_loc, bReInitialise=True)
 
-        S2, consts, taus, Sf = fitCt.sort_parameters(num_pars, pars)
-        # Print header into the Ct model file
-        print( '# Residue: %i ' % sim_resid[i], file=fp )
-        print( '# Chi-value: %g ' % chi, file=fp )
-        if fmod( num_pars, 2 ) == 1:
-            print( '# Param %s: %g +- %g' % ('S2_fast', Sf, 0.0), file=fp )
-        else:
-            print( '# Param %s: %g +- %g' % ('S2_0', S2, 0.0), file=fp )
-        for j in range(num_pars):
-            print( "# Param %s: %g +- %g" % (names[j], pars[j], errs[j]), file=fp )
+        obj.report(style='xmgrace', fp=fp)
+        #sys.exit()
+        ymodel=obj.eval(dt[i])
         #Print the fitted Ct model into file
         print( "@s%d legend \"Res %d\"" % (i*2, sim_resid[i]), file=fp )
         for j in range(len(ymodel)):
-            print( dt[i][j], ymodel[j], file=fp )
+            print("%8g %8g" % (dt[i][j], ymodel[j]), file=fp )
         print( '&', file=fp )
         for j in range(len(ymodel)):
-            print( dt[i][j], Ct[i][j], file=fp )
+            print("%8g %8g" % (dt[i][j], Ct[i][j]), file=fp )
         print( '&', file=fp )
-
-        # S2, consts, taus, Sf = sort_parameters(num_pars, pars)
-        # Parse parameters
-        # Add elements to list.
-        chi_list.append(chi)
-        names_list.append(names)
-        pars_list.append(pars)
-        errs_list.append(errs)
-        ymodel_list.append(ymodel)
 
     print( " = = Completed C(t)-fits." )
 
