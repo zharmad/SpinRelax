@@ -46,7 +46,8 @@ parser.add_argument('-f', dest='inFile', type=str, required=True, default='out_f
 parser.add_argument('-o', dest='outFile', type=str, default=None,
                     help='Output to file instead of showing.')
 parser.add_argument('--cmap', type=str, default='jet',
-                    help='The color map name fed into pyplot, unless you want a custom one. See: https://matplotlib.org/examples/color/colormaps_reference.html')
+                    help='The color map name fed into pyplot, unless you want a custom one. '
+                    'See tutorial at: https://matplotlib.org/stable/tutorials/colors/colormaps.html')
 parser.add_argument('--tmin', type=float, default=None,
                     help='Fix a minimum time constant to plot within the components, assigning timescales faster than this to S2_fast.')
 parser.add_argument('--tmax', type=float, default=None,
@@ -78,9 +79,9 @@ parser.add_argument('--title', type=str, default=None,
 
 
 args = parser.parse_args()
-bVerbose = args.bVerbose
-listParams = fitCt.read_fittedCt_parameters(args.inFile)
-print( "= = = Read %s and found %i sets of parameters." % (args.inFile, len(listParams)) )
+bVerbose  = args.bVerbose
+autoCorrs = fitCt.read_fittedCt_parameters(args.inFile)
+print( "= = = Read %s and found %i sets of parameters." % (args.inFile, autoCorrs.nModels) ) 
 
 timeUnits=args.tu
 sizeMin=args.smin
@@ -110,10 +111,9 @@ else:
     colorMap
 
 if bVerbose:
-    for x in listParams:
-        x.report()
+    autoCorrs.report_all_models()
 
-sumPoints = sum([ x.nComps for x in listParams])
+sumPoints = sum([ x.nComps for x in autoCorrs.model.values()])
 print( "= = = ..,with a total count of %i transient components." % sumPoints )
 
 # = = = = Assemble each component
@@ -123,15 +123,15 @@ posY=[]
 points = []
 S2slow = []
 S2fast = []
-for p in listParams:
-    resid = float(p.name)
+for m in autoCorrs.model.values():
+    resid = float(m.name)
     if args.sequence is None and not args.xshift is None:
         resid += float(args.xshift)
 
-    tmpS2s = p.S2
-    tmpS2f = p.calc_S2Fast()
+    tmpS2s = m.S2
+    tmpS2f = m.calc_S2Fast()
 
-    for C, tau in zip(p.C,p.tau):
+    for C, tau in zip(m.C,m.tau):
         # = = = Segment to shift components into order parameters if the timescales are clearly overfitted.
         bShifted=False
         if bDoTauShift:

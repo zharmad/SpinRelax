@@ -9,13 +9,102 @@ This header script stores a number of autocorrelation classes and handlers.
 It's intent is to containerise and obscure the varied levels of accuracy needed to fit
 a large number of C(t) from external scripts.
 """
-
-class fitParams:
+class autoCorrelations:
     """
-    Class designed to handle a set of expoential curves that together fit an autocorrelation function.
-    The transient components are normally sorted on creation from fast to slow.
+    Container class for handling a set of autocorrelation models, e.g. from a single file or protein.
 
-    May in the future allows for vectorial representation if all members have the same number of components.
+    Adapted to also contain target data
+
+    """
+    def __init__(self):
+        self.nModels  = 0
+        self.model    = OrderedDict()
+        self.nTargets = 0
+        self.DeltaT   = OrderedDict()
+        self.Decay    = OrderedDict()
+        self.dDecay   = OrderedDict()
+
+    def get_params_as_list(self):
+        keys = self.model.keys()
+        S2  = [ self.model[k].S2  for k in keys ]
+        C   = [ self.model[k].C   for k in keys ]
+        tau = [ self.model[k].tau for k in keys ]
+        S2Fast = [self.model[k].calc_S2Fast() for k in keys ]
+        return S2, C, tau, S2Fast
+
+    def add_model(self, key, name=None, listC=[], listTau=[], S2=None, bS2Fast=False, bSort=True):
+        """
+        Return the last added model for further manipulation.
+        """
+        if name is None:
+            name=key
+        self.model[key] = autoCorrelationModel(name, listC, listTau, S2, bS2Fast, bSort)
+        self.nModels = len(self.model)
+        return self.model[key]
+
+    def remove_model(self, key=None, index=None):
+        if not key is None:
+            self.model.pop(key)
+        elif not index is None:
+            keys = [k for k in self.model.keys()]
+            self.model.pop(keys[index])
+        else:
+            print("= = = ERROR in autoCorrelations.remove_model(); it needs at least one optional argument!)", file=sys.stderr)
+            return
+        self.nModels=len(self.model)
+        
+    def rename_models(self, listNames):
+        if len(listNames) != len(self.model):
+            print("= = = ERROR in autoCorrelations.rename_model(); length of lists are not equal!", file=sys.stderr)
+            return
+        for k, n in zip(self.model.keys(),listNames):
+            self.model[k].name=n
+
+    def report_all_models(self):
+        for m in self.model.values():
+            m.report()
+
+    def add_target(self, key, DeltaT, Decay, dDecay):
+        self.DeltaT[key] = DeltaT
+        self.Decay[key]  = Decay
+        self.dDecay[key] = dDecay
+        self.nTargets    = len(self.DeltaT)
+
+    def import_target_array(self, keys, DeltaT, Decay, dDecay=None):
+        if dDecay is None:
+            for i, k in enumerate(keys):
+                self.add_target(k, DeltaT[i], Decay[i], None)
+        else:
+            for i, k in enumerate(keys):
+                self.add_target(k, DeltaT[i], Decay[i], dDecay[i])
+
+    def export(self, fileName, style='xmgrace'):
+        fp = open(fileName, 'w')
+        s = 0
+        for k,m in self.model.items():
+            # = = = Report outputs the parameters in a way that is encoded.
+            m.report(style='xmgrace', fp=fp)
+            dt=self.DeltaT[k] ; Ct=self.Decay[k]
+            ymodel=m.eval(dt)
+            #Print the fitted Ct model into file
+            print( "@s%d legend \"Res %d\"" % (s, m.name), file=fp )
+            for j in range(len(ymodel)):
+                print("%8g %8g" % (dt[j], ymodel[j]), file=fp )
+            print( '&', file=fp )
+            for j in range(len(ymodel)):
+                print("%8g %8g" % (dt[j], Ct[j]), file=fp )
+            print( '&', file=fp )
+            s+=2
+
+        # WIP
+        return
+
+class autoCorrelationModel:
+    """
+    A class thaat handles modelling of an autocorrelation function via a set of exponentials.
+    Contains basic fitting and reporting funcationalities.
+
+    The transient components are normally sorted on creation from fast to slow.
     """
     # = = = Class dictionary.
     dictGreek=np.array(['a','b','g','d','e','z','h'])
@@ -55,7 +144,7 @@ class fitParams:
                 sys.exit(1)
 
     def copy(self):
-        new = fitParams()
+        new = autoCorrelationModel()
         new.copy_from(self)
         return new
 
@@ -100,15 +189,15 @@ class fitParams:
                 if self.bS2Fast:
                     print( "  S2_fast: %g" % self.calc_S2Fast(), file=fp)
                 for i in range(self.nComps):
-                    print( "  component %s, const.: %g +- %g" % (fitParams.dictGreek[i], self.C[i], self.dC[i]), file=fp )
-                    print( "  component %s, tau: %g +- %g" % (fitParams.dictGreek[i], self.tau[i], self.dtau[i]), file=fp )
+                    print( "  component %s, const.: %g +- %g" % (autoCorrelationModel.dictGreek[i], self.C[i], self.dC[i]), file=fp )
+                    print( "  component %s, tau: %g +- %g" % (autoCorrelationModel.dictGreek[i], self.tau[i], self.dtau[i]), file=fp )
                 print( "  S2_0: %g +- %g" % (self.S2, self.dS2), file=fp )
             else:
                 if self.bS2Fast:
                     print( "  S2_fast: %g" % self.calc_S2Fast(), file=fp)
                 for i in range(self.nComps):
-                    print( "  component %s, const.: %g " % (fitParams.dictGreek[i], self.C[i]), file=fp )
-                    print( "  component %s, tau: %g " % (fitParams.dictGreek[i], self.tau[i]), file=fp )
+                    print( "  component %s, const.: %g " % (autoCorrelationModel.dictGreek[i], self.C[i]), file=fp )
+                    print( "  component %s, tau: %g " % (autoCorrelationModel.dictGreek[i], self.tau[i]), file=fp )
                 print( "  S2_0: %g" % self.S2, file=fp )
         elif style == 'xmgrace':
             # Print header into the Ct model file
@@ -121,32 +210,32 @@ class fitParams:
                 else:
                     print( '# Param S2_0: %g +- 0.0' % self.S2, file=fp )
                 for i in range(self.nComps):
-                    print( '# Param C_%s: %g +- %g' % (fitParams.dictGreek[i], self.C[i], self.dC[i]), file=fp )
-                    print( '# Param tau_%s: %g +- %g' % (fitParams.dictGreek[i], self.tau[i], self.dtau[i]), file=fp )
+                    print( '# Param C_%s: %g +- %g' % (autoCorrelationModel.dictGreek[i], self.C[i], self.dC[i]), file=fp )
+                    print( '# Param tau_%s: %g +- %g' % (autoCorrelationModel.dictGreek[i], self.tau[i], self.dtau[i]), file=fp )
             else:
                 if self.bS2Fast:
                     print( '# Param S2_fast: %g' % self.calc_S2Fast(), file=fp )
                 print( '# Param S2_0: %g' % self.S2, file=fp )
                 for i in range(self.nComps):
-                    print( '# Param C_%s: %g'   % (fitParams.dictGreek[i], self.C[i]), file=fp )
-                    print( '# Param tau_%s: %g' % (fitParams.dictGreek[i], self.tau[i]), file=fp )
+                    print( '# Param C_%s: %g'   % (autoCorrelationModel.dictGreek[i], self.C[i]), file=fp )
+                    print( '# Param tau_%s: %g' % (autoCorrelationModel.dictGreek[i], self.tau[i]), file=fp )
         else:
             print("= = = ERROR: fitParam.report() does not recognise the style argument! "
                   "Choices are: stdout, xmgrace", file=sys.stderr)
 
-    def eval(self, time):
+    def eval(self, DeltaT):
         """
-        Vectorised computation function. time is expected to be a 1-D array that is broadcast to a new axis 0.
+        Vectorised computation function. dt is expected to be a 1-D array that is broadcast to a new axis 0.
         """
-        return self.S2+np.sum(self.C[:,np.newaxis]*np.exp(-1.0*time[np.newaxis,:]/self.tau[:,np.newaxis]),axis=0)
+        return self.S2+np.sum(self.C[:,np.newaxis]*np.exp(-1.0*DeltaT[np.newaxis,:]/self.tau[:,np.newaxis]),axis=0)
 
-    def calc_chiSq(self, time, Decay, dDecay=None):
+    def calc_chiSq(self, DeltaT, Decay, dDecay=None):
         if dDecay is None:
-            return np.mean(np.square(self.eval(time)-Decay))
+            return np.mean(np.square(self.eval(DeltaT)-Decay))
         else:
-            return np.mean(np.square(self.eval(time)-Decay)/dDecay)
+            return np.mean(np.square(self.eval(DeltaT)-Decay)/dDecay)
 
-    def optimised_curve_fitting(self, time, Decay, dDecay=None, listDoG=[2,3,5,7,9], chiSqThreshold=0.5, fp=sys.stdout):
+    def optimised_curve_fitting(self, DeltaT, Decay, dDecay=None, listDoG=[2,3,5,7,9], chiSqThreshold=0.5, fp=sys.stdout):
         """
         Conduct multiple curve fits over a set of degreee of freedoms given by listDoG.
         """
@@ -154,7 +243,7 @@ class fitParams:
         bFirst=True ; prev=self.copy()
         for nParams in listDoG:
             self.set_nParams( nParams )
-            chiSq, bQuality = self.conduct_curve_fitting(time, Decay, dDecay, bReInitialise=True)
+            chiSq, bQuality = self.conduct_curve_fitting(DeltaT, Decay, dDecay, bReInitialise=True)
             print("    ...fit with %i params yield chiSq of %g" % (nParams, chiSq), file=fp)
             if bFirst:
                 if np.all(bQuality):
@@ -174,26 +263,25 @@ class fitParams:
             self.copy_from(prev)
         return self.chiSq
 
-    def conduct_curve_fitting(self, time, Decay, dDecay=None, bReInitialise=False, fp=sys.stdout):
+    def conduct_curve_fitting(self, DeltaT, Decay, dDecay=None, bReInitialise=False, fp=sys.stdout):
         """
         Uses this class as a framework for invoking scipy.optimize.curve_fitting, obscuring the details on 
         arrangement of variables within the curve_fitting script.
-        Bounds are determined based on the input 1D-time vector, assumed to be montonically increasing.
-        E.g., a maximum of 10*time is set for time-constant tau, as it's impractical to observe motions
+        Bounds are determined based on the input 1D-DeltaT vector, assumed to be montonically increasing.
+        E.g., a maximum of 10*DeltaT is set for time-constant tau, as it's impractical to observe motions
         that are much greater than covered by autocorrelation.
         Returns chi value, uncertainties over all parameters, and the model fit itself as a bonus.
         """
         if bReInitialise:
-            #self.initialise_for_fit_basic(tMax=time[-1], tStep=time[1]-time[0])
-            self.initialise_for_fit_advanced(time, Decay)
+            self.initialise_for_fit_advanced(DeltaT, Decay)
         #if True:
         #    self.report()
         #    print( curvefit_exponential(np.array([0.0,100.0,1000.0,10000.0]), *self.get_params_as_list()) )
         bQuality=[True,True,True]
         try:
-            paramOpt, dParamMatrix = curve_fit(curvefit_exponential, time, Decay, sigma=dDecay,
+            paramOpt, dParamMatrix = curve_fit(curvefit_exponential, DeltaT, Decay, sigma=dDecay,
                                p0     = self.get_params_as_list(),
-                               bounds = self.get_bounds_as_list(tauMax=time[-1]*10))
+                               bounds = self.get_bounds_as_list(tauMax=DeltaT[-1]*10))
         except:
             print( "= = = WARNING, curve fitting of %s with %i params failed!" % (self.name,self.nParams), file=fp)
             bQuality[0]=False
@@ -212,12 +300,8 @@ class fitParams:
         self.set_params_from_list(paramOpt)
         self.set_uncertainties_from_list( dParam )
         self.bHasFit=True
-        self.chiSq = self.calc_chiSq( time, Decay, dDecay )
+        self.chiSq = self.calc_chiSq( DeltaT, Decay, dDecay )
         self.sort_components()
-        #if True:
-        #    self.report()
-        #    print( np.array([time[0],time[-1]]) )
-        #    print( curvefit_exponential(np.array([time[0],time[-1]]), *paramOpt) )
         return self.chiSq, bQuality
 
     def initialise_for_fit_basic(self, tMax, tStep, nParams=None):
@@ -232,11 +316,11 @@ class fitParams:
         self.S2 = 1.0/(self.nComps+1)
         self.bHasFit = False
 
-    def initialise_for_fit_advanced(self, time, Decay, nParams=None, nSample=10):
+    def initialise_for_fit_advanced(self, DeltaT, Decay, nParams=None, nSample=10):
         if not nParams is None:
             self.set_params( nParams )
-        self.tau = np.logspace( np.log10(np.mean(time[1:]-time[:-1])),
-                                np.log10(time[-1]*2.0),
+        self.tau = np.logspace( np.log10(np.mean(DeltaT[1:]-DeltaT[:-1])),
+                                np.log10(DeltaT[-1]*2.0),
                                 self.nComps+2 )[1:-1]
 
         nPoints=len(Decay)
@@ -292,23 +376,7 @@ class fitParams:
             return (0.0,[1.0]*self.nComps+[tauMax]*self.nComps)
 
 
-def least_squares_exponential(params, *args):
-    """
-    WIP.
-    Unpack parameter set into [C_a,C_b,..,tau_a,tau_b,...] and an optional S2 if the number is odd.
-    """
-    nP=len(params)
-    nC=int(nP/2)
-    C=params[0:nC] ; tau=params[nC:2*nC]
-    if nP%2==1:
-        S2=params[-1]
-    else:
-        S2=1.0-np.sum(C)
-    time=args[0] ; decay=args[1]
-    bS2Fast=args[2]
-    return np.sum(args[0]*np.exp(time[:,np.newaxis]/self.tau),axis=-1)
-
-def curvefit_exponential(time, *params):
+def curvefit_exponential(DeltaT, *params):
     n=len(params) ; nn=int(n/2)
     C=np.array(params[0:nn], dtype=float)
     tau=np.array(params[nn:2*nn], dtype=float)
@@ -316,7 +384,7 @@ def curvefit_exponential(time, *params):
         S2=params[-1]
     else:
         S2=1.0-np.sum(C)
-    return S2+np.sum(C[:,np.newaxis]*np.exp(-1.0*time[np.newaxis,:]/tau[:,np.newaxis]),axis=0)
+    return S2+np.sum(C[:,np.newaxis]*np.exp(-1.0*DeltaT[np.newaxis,:]/tau[:,np.newaxis]),axis=0)
 
 def _get_key( index, var ):
     return str(index)+"-"+var
@@ -325,7 +393,7 @@ def read_fittedCt_parameters(fileName):
     """
     Reading from a SpinRelax output file with *_fittedCt.dat as suffix.
     """
-    out = []
+    obj = autoCorrelations()
     index  = None ; S2_slow = None ; S2_fast = None
     tmpC   = OrderedDict() ; tmpTau = OrderedDict()
     bParamSection=False
@@ -364,15 +432,13 @@ def read_fittedCt_parameters(fileName):
                 if bParamSection:
                     listC   = [ tmpC[k]   for k in tmpC.keys()]
                     listTau = [ tmpTau[k] for k in tmpC.keys()]
-                    fit = fitParams(name=index, S2=S2_slow, listC = listC, listTau = listTau, bS2Fast = not S2_fast is None )
-                    #fit.report()
-                    out.append( fit )
+                    obj.add_model(index, S2=S2_slow, listC = listC, listTau = listTau, bS2Fast = not S2_fast is None )
                     bParamSection=False
                     tmpC={} ; tmpTau={} ; S2_fast=None ; S2_slow=None ; index=None
                 continue
 
     # = = = Read finished.
-    return out
+    return obj
 	   
 #def func_exp_decay1(t, tau_a):
 #    return np.exp(-t/tau_a)
@@ -439,46 +505,6 @@ def _bound_check(func, params):
     else:
         s = params[0]+sum(params[1::2])
         return (s>1)
-
-def _return_parameter_names(num_pars):
-    if num_pars==1:
-        return ['tau_a']
-    elif num_pars==2:
-         return ['C_a', 'tau_a']
-    elif num_pars==3:
-         return ['S2_0', 'C_a', 'tau_a']
-    elif num_pars==4:
-         return ['C_a', 'tau_a', 'C_b', 'tau_b']
-    elif num_pars==5:
-         return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b']
-    elif num_pars==6:
-         return ['C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g']
-    elif num_pars==7:
-         return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g']
-    elif num_pars==8:
-         return ['C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d']
-    elif num_pars==9:
-         return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d']
-    elif num_pars==10:
-         return ['C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d', 'C_e', 'tau_e']
-    elif num_pars==11:
-         return ['S2_0', 'C_a', 'tau_a', 'C_b', 'tau_b', 'C_g', 'tau_g', 'C_d', 'tau_d', 'C_e', 'tau_e']
-
-    return []
-
-
-def sort_parameters(num_pars, params):
-    if np.fmod( num_pars, 2 ) == 1:
-        S2     = params[0]
-        consts = [ params[k] for k in range(1,num_pars,2) ]
-        taus   = [ params[k] for k in range(2,num_pars,2) ]
-        Sf     = 1-params[0]-np.sum(consts)
-    else:
-        consts = [ params[k] for k in range(0,num_pars,2) ]
-        taus   = [ params[k] for k in range(1,num_pars,2) ]
-        S2     = 1.0 - np.sum( consts )
-        Sf     = 0.0
-    return S2, consts, taus, Sf
 
 def calc_chi(y1, y2, dy=[]):
     if dy != []:
@@ -592,68 +618,4 @@ def do_Expstyle_fit(num_pars, x, y, dy=[]):
         return 9999.99, popt, np.sqrt(np.diag(popv)), ymodel
     else:
         return calc_chi(y, ymodel, dy), popt, np.sqrt(np.diag(popv)), ymodel
-
-def scan_LSstyle_fits(x, y, dy=[]):
-    chi_list=[]
-    par_list=[]
-    err_list=[]
-    mod_list=[]
-    name_list=[]
-    for npars in range(1,10):
-        chi, params, errors, ymodel = do_LSstyle_fit(npars, x, y, dy)
-        names = _return_parameter_names(npars)
-        chi_list.append(chi)
-        par_list.append(params)
-        err_list.append(errors)
-        mod_list.append(ymodel)
-        name_list.append(names)
-
-    return chi_list, name_list, par_list, err_list, mod_list
-
-def run_Expstyle_fits(x, y, dy, npars):
-    names = _return_parameter_names(npars)
-    try:
-        chi, params, errors, ymodel = do_Expstyle_fit(npars, x, y, dy)
-    except:
-        print( " ...fit returns an error! Continuing." )
-
-    return chi, names, params, errors, ymodel
-
-#def findbest_LSstyle_fits(x, y, dy=[], bPrint=True):
-def findbest_Expstyle_fits(x, y, dy=[], bPrint=True, par_list=[2,3,5,7,9], threshold=0.5):
-    chi_min=np.inf
-    # Search forwards
-    for npars in par_list:
-        names = _return_parameter_names(npars)
-        try:
-            chi, params, errors, ymodel = do_Expstyle_fit(npars, x, y, dy)
-        except:
-            print( " ...fit returns an error! Continuing." )
-            break
-        bBadFit=False
-        for i in range(npars):
-            if errors[i]>params[i]:
-                print(  " --- fit shows overfitting with %d parameters." % npars )
-                print(  "  --- Occurred with parameter %s: %g +- %g " % (names[i], params[i], errors[i]) )
-                bBadFit=True
-                break
-        if (not bBadFit) and chi/chi_min < threshold:
-            chi_min=chi ; par_min=params ; err_min=errors ; npar_min=npars ; ymod_min=ymodel
-        else:
-            break
-
-    if bPrint:
-        names = _return_parameter_names(npar_min)
-        print( "= = Found %d parameters to be the minimum necessary to describe curve: chi(%d) = %g vs. chi(%d) = %g)" % (npar_min, npar_min, chi_min,  npars, chi) )
-        S2_all=1.0
-        for i in range(npar_min):
-            print( "Parameter %d %s: %g +- %g " % (i, names[i], par_min[i], err_min[i]) )
-            if 'S2' in names[i]:
-                S2_all=S2_all*par_min[i]
-        #print( "Overall S2: %g" % S2_all )
-        # Special case for 2:
-        if npar_min == 2:
-            S2_all= 1.0 - par_min[0]
-
-    return chi_min, names, par_min, err_min, ymod_min
 

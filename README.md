@@ -147,8 +147,8 @@ into the following file format, with no empty lines.
 
 ## 5. *Some large system with multiple independent MD trajectories*
 ```
-run-all.bash -folders folder_list -num_chunks 5 -t_mem 50 -reffile /absolute/path/ref.pdb -Temp_MD 300 -Temp_Exp 288 -D2O_Exp 0.10 -D_ext ...(etc.)
-run-all.bash -folders folder_list -num_chunks 5 -t_mem 50 -multiref -reffile ref.pdb -Temp_MD 300 -Temp_Exp 288 -D2O_Exp 0.10 -D_ext ...(etc.)
+run-all.bash -folders folder_list -num_chunks 5 -t_mem 50 ns -reffile /absolute/path/ref.pdb -Temp_MD 300 -Temp_Exp 288 -D2O_Exp 0.10 -D_ext ...(etc.)
+run-all.bash -folders folder_list -num_chunks 5 -t_mem 50 ns -multiref -reffile ref.pdb -Temp_MD 300 -Temp_Exp 288 -D2O_Exp 0.10 -D_ext ...(etc.)
 ```
 For many systems, the user will have run multiple simulation copies of the protein
 and wish to natively combine the dynamics data from all of them.
@@ -168,7 +168,7 @@ of the global rotational diffusion: since the error is made by standard deviatio
 then it makes no sense to divide a single trjaectory across two chunks. I.e., Have to factorise.
 
 
-Note that `-t_mem 50` sets the **memory time** to 50 ns. This is an subtle but important
+Note that `-t_mem 50 ns sets the **memory time** to 50 ns. This is an subtle but important
 idea in NMR, where the MD timescales hidden by global tumbling should be excluded
 in the analysis.
 

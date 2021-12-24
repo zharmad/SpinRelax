@@ -1,11 +1,11 @@
 #!/usr/bin/python
-
 import sys
 import numpy as np
 from math import *
 import npufunc
 import general_maths as gm
 
+import fitting_Ct_functions as fitCt 
 """
 Notes: Uses a user-defined numpy universal function in C (npufunc.so)
 to compute F(x,y)=x/(x+y) across an array.
@@ -59,7 +59,17 @@ class gyromag:
         self.gamma *= mult
 
 class diffusionModel:
+    """
+    The base global diffusion model that contains the global rotational diffusion tensor information,
+    and potential vector distributions.
+
+    Its main purpose in SpinRelax is to obscure the details of computing D and D coefficients and
+    containerise its relevant parameters such as D_iso, D_aniso, and q_orient.
+
+    The rotational diffusion model determines which function should be called when J(omega) is to be computed.
+    """
     def __init__(self, model, *args):
+        self.vecXH = None
         self.timeUnit=args[0]
         self.time_fact=_return_time_fact(self.timeUnit)
         if   model=='direct_transform':
@@ -68,7 +78,7 @@ class diffusionModel:
             self.D=np.nan
         elif model=='rigid_sphere_T':
             self.name='rigid_sphere'
-            self.D=1.0/6.0*float(args[1])
+            self.D=1.0/(6.0*float(args[1]))
             self.D_coeff=self.D
             self.D_delta=0.0
             #self.A_coeff=1.0
@@ -142,9 +152,166 @@ class diffusionModel:
             print( "= = ERROR: change_Diso for fully anisotropic models, not implemented.", file=sys.stderr )
             sys.exit(1)
 
-class relaxMeasurement:
+    def import_vecs(self, v):
+        self.vecXH = v
+        self._sanitise_vecs()
+
+    def _sanitise_vecs(self):
+        if type(self.vecXH) != np.ndarray:
+            self.vecXH=np.array(self.vecXH)
+        sh=self.vecXH.shape
+        if sh[-1] != 3:
+            print( "= = ERROR in computation of A and D coefficients (spectral_densities.py): input v does not have 3 as its final dimension!", file=sys.stderr )
+            sys.exit(2)
+
+    def calc_Jomega(self, omega, autoCorr):
+        # = = = The parent class does not apply any global diffusion.
+        return J_direct_transform(omega, autoCorr)
+
+class globalRotationalDiffusion_Base:
+    def __init__(self):
+        self.vecXH = None
+        self.name  = 'base'
+
+class globalRotationalDiffusion_Isotropic(globalRotationalDiffusion_Base):
     """
-    This class handles aspects specific to an individual NMR measurement.
+    Subcopy for isotropic
+    """
+    def __init__(self, D=None, tau=None):
+        if D is None and tau is None:
+            print("= = = ERROR: global rotdif models must be initialised with some D or tau argeument!", file=fp)
+            return None
+        globalRotationalDiffusion_Base.__init__(self)
+        self.name='isotropic'
+        if not D is None:
+            self.D=D
+        else:
+            self.D=1.0/(6.0*tau)
+
+    def get_params(self):
+        return [self.D]
+    def change_Diso(self,Diso):
+        self.D=Diso
+
+    def get_A_coefficients(self):
+        # A_coefficients_symmtop(v, bProlate=(self.D[0]>self.D[1]))
+        return 1.0
+    def get_D_coefficients(self):
+        return self.D
+
+    def calc_Jomega(self, omega, CtModel):
+        """
+        This calculats the J value for combining an isotropic global tumbling with
+        a fitted internal autocorrelation C(t), where
+        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
+        thus this allows fits to multiple time constants in C(t).
+        """
+        #def J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
+        tauGlob=1.0/(6.0*self.D)
+        k = 1.0/tauGlob+1.0/CtModel.tau
+        Jmat = CtModel.S2*tauGlob/(1.0+(omega*tauGlob)**2.0)
+        for i in range(CtModel.nComps):
+            Jmat += CtModel.C[i]*k[i]/(k[i]**2.0+omega**2.0)
+        return Jmat
+
+    def calc_Jomega_rigid(self, omega):
+        return 6.0*self.D/( (6.0*self.D)**2.0 + np.power(omega,2.0) )
+
+class globalRotationalDiffusion_Axisymmetric(globalRotationalDiffusion_Base):
+    """
+    Subcopy for axi-symmetric.
+    Internal storage will be in terms of D_iso and D_aniso, rather than D_parallel, D_perpendicular
+    """
+    def __init__(self, D=None, bConvert=False, tau=None, aniso=None):
+        if D is None and (tau is None or aniso is None):
+            print("= = = ERROR: global rotdif models must be initialised with some D or tau/aniso argeument!", file=sys.stderr)
+            return None
+        globalRotationalDiffusion_Base.__init__(self)
+        self.name='axisymmetric'
+        if not D is None:
+            if bConvert:
+                self.D=np.array([(2.0*D[1]+D[0])/3.0, D[0]/D[1]], dtype=float)
+            else:
+                self.D=np.array(D, dtype=float)
+            #Dperp = 3.*Diso/(2+Daniso)
+            #Dpar  = Daniso*Dperp
+            # Convention: Diso, Dani --> Dpar, Dperp
+        else:
+            self.D=np.array( [1.0/(6.0*tau),aniso], dtype=float)
+        if self.D[1]>1:
+            self.bProlate=True
+        else:
+            self.bProlate=False
+
+    def get_params(self):
+        return [self.D[0], self.D[1]]
+    def change_Diso(self, Diso):
+        self.D[0]=Diso
+    def change_aniso(self, aniso):
+        self.D[1]=aniso
+
+    def get_A_coefficients(self):
+        """
+        Computes the 3 axisymmetric A-coefficients associated with orientation of the vector w.r.t. to the D_rot ellipsoid.
+        v can be many dimensions, as lons as the X/Y/Z cartesian dimensions is the last. e.g. v.shape = (M,N,3)
+        Note the current implementation is probably a bit slower on small sizes comapred to the trivial.
+        This is designed to handle many vectors at once.
+        Also note: The unique axis changes when Daniso > 1 and when Daniso < 1 so as to preserve Dx<Dy<Dz formalism.
+        This is governed by bProlate, which changes the unique axis to x when tumbling is oblate.
+        """
+        if self.bProlate:
+            # Use z-dim.
+            z2=np.square(self.vecXH.take(-1, axis=-1))
+        else:
+            # Use x-dim.
+            z2=np.square(self.vecXH.take( 0, axis=-1))
+        onemz2=1-z2
+        A0 = np.multiply( 3.0, np.multiply(z2,onemz2))
+        A1 = np.multiply(0.75, np.square(onemz2))
+        A2 = np.multiply(0.25, np.square(np.multiply(3.0,z2)-1.0))
+        return np.stack((A0,A1,A2),axis=-1)
+
+    def get_D_coefficients(self):
+        """
+        Computes the 3 axisymmetric D-coefficients associated with the D_rot ellipsoid.
+        """
+        Dperp  = 3.0*self.D[0]/(2.0+self.D[1])
+        Dpar   = self.D[1]*self.D[0]
+        #Dpar=self.D[0] ; Dperp=self.D[1]
+        return np.array( [5*Dperp+Dpar, 2*Dperp+4*Dpar, 6*Dperp], dtype=float)
+
+    def calc_Jomega(self, omega, CtModel):
+        #def J_combine_symmtop_exp_decayN(om, v, Dpar, Dperp, S2, consts, taus):
+        """
+        Calculates the J value for combining a symmetric-top anisotropic tumbling with
+        a fitted internal autocorrelation C(t), where
+        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
+        thus this allows fits to multiple time constants in C(t).
+    
+        This function supports giving multiple vectors at once, of the form v.shape=(L,M,N,...,3)
+        """
+        #v can be given as an array, with the X/Y/Z cartesian axisin the last position.
+        #"""
+        D_J=self.get_D_coefficients() ; A_J=self.get_A_coefficients()
+        noms=len(omega)
+        Jmat = _do_Jsum(omega, CtModel.S2*A_J, D_J)
+        for i in range(CtModel.nComps):
+            Jmat += _do_Jsum(omega, CtModel.C[i]*A_J, D_J+1./CtModel.tau[i])
+        return Jmat
+        #return _do_Jsum( S2*A_J, D_J) + np.sum([ _do_Jsum(CtModel.C[i]*A_J, D_J+1./CtModel.tau[i]) for i in range(CtModel.nComps)) ])
+
+    def calc_Jomega_rigid(self, omega):
+        D_J=self.get_D_coefficients()
+        A_J=self.get_A_coefficients()
+        return A_J*D_J/(np.power(D_J,2.0)+np.power(omega,2.0))
+
+class spinRelaxationExperiment:
+    """
+    This meta class handles all properties specific to a single NMR experiment, e.g. R1, R2, R1rho, hetNOE.
+    It acts to provide the relevant J(omega) frequencies to downstream relaxation computations, with the idea
+    that invoking obj.eval() will return fequencies given:
+    - the global tumbling parameters D    from rotdifModel
+    - the local  tumbling parameters C(t) from autoCorrelations
     It will have a coded conversion factor, type, and other data.
     
     By default, this will evaluate the frequences at which the relaxation is sensitive to.
@@ -628,12 +795,6 @@ def A_coefficients_symmtop(v, bProlate=True):
     A1 = np.multiply(0.75, np.square(onemz2))
     A2 = np.multiply(0.25, np.square(np.multiply(3,z2)-1))
     return np.stack((A0,A1,A2),axis=-1)
-    #z2=v[2]*v[2]
-    #A=np.zeros(3)
-    #A[0]= 3.00*z2*(1-z2)
-    #A[1]= 0.75*(1-z2)**2
-    #A[2]= 0.25*(3*z2-1)**2
-    #return A
 
 def Ddelta_ellipsoid(D):
     Diso= ( D[0] + D[1] + D[2] )/3.0
@@ -774,15 +935,19 @@ def J_combine_isotropic_exp_decayN(om, tau_iso, S2, consts, taus):
     """
     k = (1.0/tau_iso)+(1.0/np.array(taus))
     ndecay=len(consts) ; noms  =len(om)
-    Jmat = np.zeros( (ndecay+1, noms ) )
-    Jmat[0]= S2*tau_iso/(1.+(om*tau_iso)**2.)
+    Jmat = S2*tau_iso/(1.+(om*tau_iso)**2.)
     for i in range(ndecay):
-        Jmat[i+1] = consts[i]*k[i] /(k[i]**2.+om**2.)
-    return Jmat.sum(axis=0)
+        Jmat += consts[i]*k[i] /(k[i]**2.+om**2.)
+    return Jmat
+    #Jmat = np.zeros( (ndecay+1, noms ) )
+    #Jmat[0]= S2*tau_iso/(1.+(om*tau_iso)**2.)
+    #for i in range(ndecay):
+    #    Jmat[i+1] = consts[i]*k[i] /(k[i]**2.+om**2.)
+    #return Jmat.sum(axis=0)
 
 def J_combine_symmtop_exp_decayN(om, v, Dpar, Dperp, S2, consts, taus):
     """
-    Calculats the J value for combining a symmetric-top anisotropic tumbling with
+    Calculates the J value for combining a symmetric-top anisotropic tumbling with
     a fitted internal autocorrelation C(t), where
     C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
     thus this allows fits to multiple time constants in C(t).
@@ -797,20 +962,24 @@ def J_combine_symmtop_exp_decayN(om, v, Dpar, Dperp, S2, consts, taus):
     A_J=A_coefficients_symmtop(v, bProlate=(Dpar>Dperp) )
     ndecay=len(consts) ; noms  =len(om)
 
-    if len(v.shape) > 1:
-        Jmat0 = _do_Jsum(om, S2*A_J, D_J)
-        sh_J = Jmat0.shape ; sh_out=list(sh_J) ; sh_out.insert(0, ndecay+1)
-        Jmat = np.zeros(sh_out)
-        Jmat[0] = Jmat0
-        for i in range(ndecay):
-            Jmat[i+1] = _do_Jsum(om, consts[i]*A_J, D_J+1./taus[i])
-        return Jmat.sum(axis=0)
-    else:
-        Jmat = np.zeros( (ndecay+1, noms ) )
-        Jmat[0]= _do_Jsum(om, S2*A_J, D_J)
-        for i in range(ndecay):
-            Jmat[i+1] = _do_Jsum(om, consts[i]*A_J, D_J+1./taus[i])
-        return Jmat.sum(axis=0)
+    Jmat = _do_Jsum(om, S2*A_J, D_J)
+    for i in range(ndecay):
+        Jmat += _do_Jsum(om, consts[i]*A_J, D_J+1./taus[i])
+    return Jmat
+#    if len(v.shape) > 1:
+#        Jmat0 = _do_Jsum(om, S2*A_J, D_J)
+#        sh_J = Jmat0.shape ; sh_out=list(sh_J) ; sh_out.insert(0, ndecay+1)
+#        Jmat = np.zeros(sh_out)
+#        Jmat[0] = Jmat0
+#        for i in range(ndecay):
+#            Jmat[i+1] = _do_Jsum(om, consts[i]*A_J, D_J+1./taus[i])
+#        return Jmat.sum(axis=0)
+#    else:
+#        Jmat = np.zeros( (ndecay+1, noms ) )
+#        Jmat[0]= _do_Jsum(om, S2*A_J, D_J)
+#        for i in range(ndecay):
+#            Jmat[i+1] = _do_Jsum(om, consts[i]*A_J, D_J+1./taus[i])
+#        return Jmat.sum(axis=0)
     #return _do_Jsum( S2*A_J, D_J) + np.sum([ _do_Jsum(consts[i]*A_J, D_J+1./taus[i]) for i in range(len(consts)) ])
 
 def J_combine_ellipsoid_exp_decayN(om, v, D, S2, consts, taus):

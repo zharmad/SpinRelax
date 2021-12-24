@@ -9,6 +9,7 @@ import transforms3d_supplement as qs
 import fitting_Ct_functions as fitCt
 import spectral_densities as sd
 from scipy.optimize import fmin_powell
+#from scipy.stats import sem
 
 # There may be minor mistakes in the selection text. Try to identify what is wrong.
 def confirm_seltxt(ref, Hseltxt, Xseltxt):
@@ -64,8 +65,10 @@ if __name__ == '__main__':
                         help='One or more files containing autocorrelation functions from independent trajectories. '
                              'Each file contains a list of C(t) corresponding to residues to be fitted separately. '
                              'The relevant residue number is found via the legend text in xmgrace format. '
-                             'If multiple files are given, each corresponging C(t) will be averaged '
-                             'before a single fitting is calculated.')
+                             'If multiple files are given, each corresponding C(t) will be averaged '
+                             'before a single fitting is calculated. All time entries need to be identical here.'
+                             'Note: The run-all.bash workflow will generate a single C(t) file based on all trajectories, '
+                             'so this multifile option is generally not used.')
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
     parser.add_argument('--nc', type=int, default=-1,
@@ -92,45 +95,59 @@ if __name__ == '__main__':
     #zeta=args.zeta
     bHaveDy = False
 
+    # = = = Prepare the handling class
+    autoCorrs = fitCt.autoCorrelations()
+
     # = = = Read C(t), and averge if more than one
+    bError=True
     num_files = len(in_file_list)
     print( "= = = Found %d input C(t) files." % num_files )
     if (num_files == 1):
+        # Note return array of (nLegs, nTime )
         legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[0], 'legend')
         legs = [ int(x) for x in legs ]
+        if len(Cterr)==0:
+            Cterr=None
+            bError=False
     else:
         print( "    ...will perform averaging to obtain averaged C(t)." )
-        print( "    ....WARNING: untested. Please verify!" )
-        dt_prev=[] ; Ct_list=[] ; Cterr_list=[]
+        dtFirst=None ; legsFirst=None; Ct_list=[] ; Cterr_list=[]
         for ind in range(num_files):
             legs, dt, Ct, Cterr = gs.load_sxydylist(in_file_list[ind], 'legend')
             legs = [ int(x) for x in legs ]
-            dt_prev=dt ; Ct_list.append(Ct) ; Cterr_list.append(Cterr)
+            if not dtFirst is None and np.all(np.equal(dt, dt_prev)) and np.all(np.equal(legs, legsFirst)):
+                print("= = = ERROR: time and legend entries are not identical between files! Last file read: %s" % in_file_list[ind], file=fp)
+                sys.exit(1)
+            else:
+                dtFirst=dt ; legsFirst = legs
+            Ct_list.append(Ct) ; Cterr_list.append(Cterr)
         # = = = Ct_list is a list of 2D arrays.
-        # = = = Perform grand average over individual observations. Assuming equal weights (dangerous!)
-        Ct_list = np.array(Ct_list, dtype=float)
-        Ct = np.mean(Ct_list, axis=0)
+        # = = = Perform grand average over individual replicates. Assuming equal weights (dangerous!)
+        Ct = np.mean(np.array(Ct_list, dtype=float), axis=0)
+        del Ct_list
         if len(Cterr_list[0]) == 0:
+            # = = = No error bars on input curves, used standard-deviation as uncertainties.
             Cterr = np.std(Ct_list, axis=0)
         else:
+            # = = = Has error bars on input curves, calculate
             shape=Ct.shape
             Cterr_list = np.array(Cterr_list, dtype=float)
             Cterr = np.zeros(shape)
             for i in range(shape[0]):
                 for j in range(shape[1]):
                     Cterr[i,j] = gm.simple_total_mean_square(Ct_list[:,i,j], Cterr_list[:,i,j])
-        del Ct_list ; del Cterr_list
+        del Cterr_list
         # = = = Write averaged Ct as part of reporting
         out_fn = out_pref+'_averageCt.dat'
         fp = open(out_fn, 'w')
-        for j in range(npts):
-            print( dt[i], Ct[j], Cterr[j], file=fp )
+        for i in range(len(legs)):
+            for j in range(npts):
+                print( dt[i][j], Ct[i][j], Cterr[i][j], file=fp )
         print( '&', file=fp )
         fp.close()
 
-    sim_resid = legs
-    num_vecs = len(dt)
-
+    autoCorrs.import_target_array(keys=legs, DeltaT=dt, Decay=Ct , dDecay=Cterr)
+    del dt, Ct, Cterr
     # = = = Fit simulated C(t) for each X-H vector with theoretical decomposition into a minimum number of time constants.
     #       This yields the fitting parameters required for the next step: the calculation of relaxations.
     # S2_list=[] ; taus_list=[] ; consts_list=[]
@@ -142,40 +159,26 @@ if __name__ == '__main__':
 
     out_fn=out_pref+'_fittedCt.dat'
     fp=open(out_fn, 'w')
-    obj = fitCt.fitParams()
-    for i in range(num_vecs):
-        obj.name = str(sim_resid[i])
-        print( "...Running C(t)-fit for residue %i:" % sim_resid[i] )
-        if len(Cterr)>0:
-            dy_loc=Cterr[i]
+    for k in autoCorrs.DeltaT.keys():
+        obj = autoCorrs.add_model( k )
+        print( "...Running C(t)-fit for residue %i:" % obj.name )
         if num_comp == -1:
             # Automatically find the best number of parameters
             if bUseSFast:
-                obj.optimised_curve_fitting( dt[i], Ct[i], dy_loc, listDoG=[2,3,5,7,9], chiSqThreshold=0.5 )
+                listDoGs=[2,3,5,7,9]
             else:
-                obj.optimised_curve_fitting( dt[i], Ct[i], dy_loc, listDoG=[2,4,6,8], chiSqThreshold=0.5 )
+                listDoGs=[2,4,6,8]
+            obj.optimised_curve_fitting( autoCorrs.DeltaT[k], autoCorrs.Decay[k], autoCorrs.dDecay[k], listDoG=listDoGs, chiSqThreshold=0.5 )
         else:
             # Use a specified number of parameters
             if bUseSFast:
-                obj.nParams = 2*nc+1
+                obj.set_nParams( 2*nc+1 )
             else:
-                obj.nParams = 2*nc
-            obj.conduct_curve_fitting(dt[i], Ct[i], dy_loc, bReInitialise=True)
+                obj.set_nParams( 2*nc )
+            obj.conduct_curve_fitting( autoCorrs.DeltaT[k], autoCorrs.Decay[k], autoCorrs.dDecay[k], bReInitialise=True)
 
-        obj.report(style='xmgrace', fp=fp)
-        #sys.exit()
-        ymodel=obj.eval(dt[i])
-        #Print the fitted Ct model into file
-        print( "@s%d legend \"Res %d\"" % (i*2, sim_resid[i]), file=fp )
-        for j in range(len(ymodel)):
-            print("%8g %8g" % (dt[i][j], ymodel[j]), file=fp )
-        print( '&', file=fp )
-        for j in range(len(ymodel)):
-            print("%8g %8g" % (dt[i][j], Ct[i][j]), file=fp )
-        print( '&', file=fp )
-
+    autoCorrs.export(fileName=out_fn, style='xmgrace')
     print( " = = Completed C(t)-fits." )
-
 
     #S2 *= zeta
     #consts = [ k*zeta for k in consts ]

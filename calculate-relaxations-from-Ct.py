@@ -1,5 +1,6 @@
 from math import *
 import sys, os, argparse, time
+from re import split as regexp_split
 import numpy as np
 import numpy.ma as ma
 import general_scripts as gs
@@ -67,7 +68,7 @@ def extract_vectors_from_structure( pdbFile, Hseltxt='name H', Xsel='name N and 
         return resXH, np.swapaxes(vecXH,0,1)
 
 def sanity_check_two_list(listA, listB, string, bVerbose=False):
-    if not np.all( np.equal(listA, listB) ):
+    if not gm.list_identical( listA, listB ):
         print( "= = ERROR: Sanity checked failed for %s!" % string )
         if bVerbose:
             print( listA )
@@ -377,34 +378,6 @@ def read_fittedCt_file(filename):
         sys.exit(1)
     return resid, param_name, param_val
 
-def parse_parameters(names, values):
-
-    if len(names) != len(values):
-        print( "= = ERROR in parse_parameters! The lengths of names and values arrays are not the same!", file=sys.stderr )
-        sys.exit(1)
-
-    S2=np.nan ; consts=[] ; taus=[] ; Sf=np.nan
-    for i in range(len(names)):
-        if names[i]=='S2_0':
-            S2=values[i]
-        elif 'C_' in names[i]:
-            consts.append(values[i])
-        elif 'tau_' in names[i]:
-            taus.append(values[i])
-        elif 'S2_fast'==names[i]:
-            Sf=values[i]
-        else:
-            print( "= = ERROR: parameter name not recognised! %s %s" % (names[i], values[i]), file=sys.stderr )
-
-    # Relic code for when order parameters are not explicitly written:
-    if np.isnan(S2):
-        S2 = 1.0-np.sum( consts )
-        Sf = 0.0
-    if np.isnan(Sf):
-        Sf = 1-S2-np.sum(consts)
-
-    return S2, consts, taus, Sf
-
 #def read_exp_relaxations(filename):
 #    """
 #    This will return a masked array.
@@ -530,7 +503,7 @@ if __name__ == '__main__':
     parser.add_argument('--aniso', type=float, dest='aniso', default=1.0,
                         help='Diffusion anisotropy (prolate/oblate). Overwritten by Diffusion tensor values when given.')
     parser.add_argument('-D', '--DTensor', type=str, dest='D', default=None,
-                        help='The Diffusion tensor, given as Diso, Daniso, Drhomb.'
+                        help='The Diffusion tensor, given as Diso, Daniso, Drhomb. Entries are either comma-separated or space separated in a quote. '
                              'Note: In axisymmetric forms, when Daniso < 1 the unique axis is considered to point along x, and'
                              'when Daniso > 1 the unique axis is considered to point along z.')
     parser.add_argument('--rXH', type=float, default=np.nan,
@@ -565,6 +538,7 @@ if __name__ == '__main__':
                              '(1) Rigid sphere relxation. '
                              '(2) Axisymmetric diffusion, if vector directions are given.')
 
+    # = = = Section 0.0 Initial paramerter setting.
     time_start=time.time()
 
     args = parser.parse_args()
@@ -577,12 +551,13 @@ if __name__ == '__main__':
             sys.exit(1)
         bOptPars = True
         optMode = args.opt
+        expt_data_file=args.expfn
     else:
         bOptPars = False
     bJomega = args.Jomega
     zeta = args.zeta
     if zeta != 1.0:
-        print( " = = Applying scaling to add zero-point QM vibrations (zeta) of %g" % zeta )
+        print( " = = Applying scaling of all C(t) magnitudes to account for zero-point QM vibrations (zeta) of %g" % zeta )
 
 
     # Set up relaxation parameters.
@@ -606,49 +581,7 @@ if __name__ == '__main__':
     print( "= = = Setting up magnetic field:", B0, "T" )
     print( "= = = Angular frequencies in ps^-1 based on given parameters:" )
     relax_obj.print_frequencies()
-    print( "= = = Gamma values: (X) %g , (H) %g" % (relax_obj.gX.gamma, relax_obj.gH.gamma) )
-
-    #Check if the experimental file is given
-    if not args.expfn is None:
-        print( "= = = Experimental relaxation parameters given." )
-        # New code. Take into account holes in data and multiple fields
-        # Where holes are, put False in the Truth Matrix
-        #exp_Bfields, exp_resid, expblock, truthblock = read_exp_relaxations(args.expfn)
-
-        # Old code below:
-        exp_resid, expblock = gs.load_xys(args.expfn)
-        nres = len(exp_resid)
-        ny   = expblock.shape[1]
-        rho = np.zeros(nres, dtype=np.float32)
-        if ny == 6:
-            expblock = expblock.reshape( (nres,3,2) )
-        elif ny != 3:
-            print( "= = = ERROR: The column format of the experimental relaxation file is not recognised!", file=sys.stderr )
-            sys.exit(1)
-        if not bOptPars:
-            rho = np.zeros ( nres, dtype=np.float32)
-            if ny==6:
-                for i in range(nres):
-                    rho[i]=relax_obj.calculate_rho_from_relaxation(expblock[i,:,0])
-            else:
-                for i in range(nres):
-                    rho[i]=relax_obj.calculate_rho_from_relaxation(expblock[i])
-            out_fn = out_pref+'_expRho.dat'
-            if ny == 3:
-                gs.print_xy(out_fn, exp_resid, rho)
-            elif ny == 6:
-                gs.print_xy(out_fn, exp_resid, rho)
-                #gs.print_xydy(out_fn, exp_resid, rho[:,0], rho[:,1])
-            sys.exit(0)
-        # = = = Prepare datablock for fitting.
-        else:
-            if ny == 3:
-                expblock = expblock.T
-            elif ny == 6:
-                expblock = np.swapaxes(expblock,0,1)
-        # = = Desired dimensions:
-        # When no errors are given expblock is (nres, R1/R2/NOE)
-        # When errors are given, 3 dimensions: (nres, R1/R2/NOE, data/error)
+    print( "= = = Gamma values: (X) %g , (H) %g rad s^-1 T^-1" % (relax_obj.gX.gamma, relax_obj.gH.gamma) )
 
     #Determine diffusion model.
     if args.D is None:
@@ -664,7 +597,7 @@ if __name__ == '__main__':
             else:
                 diff_type = 'spherical'
     else:
-        tmp   = [ float(x) for x in args.D.split() ]
+        tmp   = [float(x) for x in regexp_split('[, ]', args.D) if len(x)>0]
         Diso  = tmp[0]
         if len(tmp)==1:
             diff_type = 'spherical'
@@ -689,8 +622,8 @@ if __name__ == '__main__':
         Dpar  = aniso*Dperp
         print( "= = = Calculated anisotropy to be: ", aniso )
         print( "= = = With Dpar, Dperp: %g, %g %s^-1" % ( Dpar, Dperp, timeUnit) )
-        # This part is ignored for now..
         relax_obj.set_rotdif_model('rigid_symmtop_D', Dpar, Dperp)
+        #relax_obj.rotdifModel = sd.globalRotationalDiffusion_Axisymmetric(D=[Dpar,Dperp], bConvert=True)
         # Read quaternion
         if args.qrot_str != "":
             bQuatRot = True
@@ -756,11 +689,12 @@ if __name__ == '__main__':
 
 # = = = Read fitted C(t). For each residue, we expect a set of parameters
 #       corresponding to S2 and the other parameters.
-    sim_resid, param_names, param_vals = read_fittedCt_file( fittedCt_file )
-    if len(sim_resid) == 0:
+    autoCorrs = fitCt.read_fittedCt_parameters( fittedCt_file )
+    if autoCorrs.nModels == 0:
         print( "= = = ERROR: The fitted-Ct file %s was read, but did not yield any usable parameters!" % fittedCt_file )
         sys.exit(1)
-    num_vecs = len(sim_resid)
+    num_vecs  = autoCorrs.nModels
+    sim_resid = [ int(k) for k in autoCorrs.model.keys() ]
     if diff_type == 'symmtop' or diff_type == 'anisotropic':
         sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct -versus- vectors as defined in anisotropy")
 
@@ -789,7 +723,7 @@ if __name__ == '__main__':
             #if bOptPars and 'CSA' in optMode:
             #    print( "= = = Note: Will turn on per-residue CSA optimisation flag, since a per-resuidue CSA input was given!" )
             #    bCSAPerResidue = True
-
+            
             residCSA, CSAvaluesArray = gs.load_xy( args.csa )
             relax_obj.gX.csa = np.nan
             print( "= = = Using input CSA values from file %s - please ensure that the resid definitions are identical to the other files." % args.csa )
@@ -808,15 +742,12 @@ if __name__ == '__main__':
             print( "= = = ERROR at parsing the --csa argument!", file=sys.stderr )
             sys.exit(1)
 
-    S2_list=[] ; taus_list=[] ; consts_list=[]
-    for i in range(num_vecs):
-        # Parse input parameters
-        S2, consts, taus, Sf = parse_parameters( param_names[i], param_vals[i] )
-
-        # = = = This section applies zero-point corrections to S2, 0.89 = = =
-        S2 *= zeta
-        consts = [ k*zeta for k in consts ]
-        S2_list.append(S2) ; taus_list.append(taus) ; consts_list.append(consts)
+    # = = Temporary hybridisation
+    #listZeta = np.repeat(zeta, autoCorrs.nModels)
+    S2_list, consts_list, taus_list, dummy = autoCorrs.get_params_as_list()
+    for i in range(autoCorrs.nModels):
+        S2_list[i]     *= zeta
+        consts_list[i] *= zeta
 
     # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
     param_names=("Diso", "zeta", "CSA", "chi")
@@ -825,7 +756,7 @@ if __name__ == '__main__':
     optHeader=''
     #relax_obj.rotdif_model.change_Diso( Diso )
     if not bOptPars:
-
+        # = = = Section 1. No minimisation is applied against experimental data.
         if bJomega:
             datablock = _obtain_Jomega(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
         else:
@@ -836,14 +767,48 @@ if __name__ == '__main__':
                   units=param_units,
                   bFit=(False, False, False, False) )
     else:
+        # = = = Section 2. Minimisation is applied against experimental data.
+        print( "= = = Reading Experimental relaxation parameter files" )
+        # New code. Take into account holes in data and multiple fields
+        # Where holes are, put False in the Truth Matrix
+        #exp_Bfields, exp_resid, expblock, truthblock = read_exp_relaxations(args.expfn)
+        # Old code below:
+        exp_resid, expblock = gs.load_xys(expt_data_file)
+        nres = len(exp_resid)
+        ny   = expblock.shape[1]
+        rho = np.zeros(nres, dtype=np.float32)
+        if ny == 6:
+            expblock = expblock.reshape( (nres,3,2) )
+            # = = = Check if there are entries with zero uncertainty, which may break the algorithm.
+            if ( np.any(expblock[...,1]==0) ):
+                print("= = = WARNING: Experimental data %s contains entries with 0.00 uncertainty!" % expt_data_file, file=sys.stderr)
+                if relax_obj.rotdifModel.name=='rigid_sphere':
+                    print("= = = ERROR: Experimental data with partial zero uncertainties will break isotropic rotational diffusion optimisations.\n"
+                          "      Please clean up your data with an appropriate uncertainty estimator.")
+                    sys.exit(1)
+        elif ny != 3:
+            print( "= = = ERROR: The column format of the experimental relaxation file is not recognised!", file=sys.stderr )
+            sys.exit(1)
+
+        if ny == 3:
+            expblock = expblock.T
+        elif ny == 6:
+            expblock = np.swapaxes(expblock,0,1)
+        # = = Desired dimensions:
+        # When no errors are given expblock is (nres, R1/R2/NOE)
+        # When errors are given, 3 dimensions: (nres, R1/R2/NOE, data/error)
+
         # = = = Sanity Check
         # Compare the two resid_lists.
         sim_ind=None
         if not gm.list_identical( sim_resid, exp_resid ):
             print( "= = WARNING: The resids between the simulation and experiment are not the same!", file=sys.stderr )
             print( "...removing elements from the vector files that do not match.", file=sys.stderr )
-
-            print( "Debug (before):", len(S2_list), vecXH.shape, expblock.shape )
+            
+            if not vecXH is None:
+                print( "Debug (before):", len(S2_list), vecXH.shape, expblock.shape )
+            else:
+                print( "Debug (before):", len(S2_list), None, expblock.shape )
             print( "(resid - sim)", sim_resid )
             print( "(resid - exp)", exp_resid )
             shared_resid = np.sort( list( set(sim_resid) & set(exp_resid) ) )
@@ -858,7 +823,10 @@ if __name__ == '__main__':
             fS2_list     = [ S2_list[x] for x in sim_ind ]
             fconsts_list = [ consts_list[x] for x in sim_ind ]
             ftaus_list   = [ taus_list[x] for x in sim_ind ]
-            fvecXH       = vecXH.take(sim_ind, axis=0)
+            if not vecXH is None:
+                fvecXH = vecXH.take(sim_ind, axis=0)
+            else:
+                fvecXH = None
             fCSAs        = CSAvaluesArray.take(sim_ind)
             if not vecXHweights is None:
                 fvecXHweights = vecXHweights.take(sim_ind, axis=0)
@@ -866,8 +834,11 @@ if __name__ == '__main__':
                 fvecXHweights = None
             exp_ind = np.array( [ (np.where(exp_resid==x))[0][0] for x in shared_resid ] )
             expblock = np.take(expblock, exp_ind, axis=1)
-            
-            print( "Debug (after):", len(fS2_list), fvecXH.shape, expblock.shape )
+
+            if not vecXH is None:
+                print( "Debug (after):", len(fS2_list), fvecXH.shape, expblock.shape )
+            else:
+                print( "Debug (after):", len(S2_list), None, expblock.shape )
             print( "(resid)", sim_resid )
         else:
             fnum_vecs    = num_vecs
@@ -886,6 +857,10 @@ if __name__ == '__main__':
                 args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, CSAvaluesArray, expblock) )
         else:
             Diso_init = Diso
+
+        # = = DEBUG = =
+        #print(relax_obj.rotdifModel.name)
+        #sys.exit()
 
         if  optMode == 'new':
             print( "= = Conducting global-Diso + local-CSA refinement... this may take a while." )
