@@ -4,6 +4,7 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 
 # Change Log and Expected To-Do list
 
+- [x] v0.22 - Residue-specific CSA fittings for one set of R1R2NOE.
 - [x] v0.21 - Initial groundwork on residue-specific CSA fittings.
 - [x] v0.2 - Port to Python3. Initial work complete with basic validation checks.
 - [x] v0.1 - Initial upload of the dirty version using a mixture of bash, python, PLUMED2, and optionally GROMACS.
@@ -16,27 +17,39 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 
 ## Workflow changes in October 2021.
 
+- Planned: Will alter syntax for experimetnal fitting of data.
 - Changed syntax user QoL: center-solute-gromacs.bash 
 
 # General Information
 
-The package comes with a set of scripts that compute individual stages of the workflow.
-This README will provide **general** information - for more details, please examine
-the help documentation for each script.
-Hypothetical usages are provided at the end of this document.
+This is the bash/python workflow package associated with Chen, Hologne, Walker and Hennig (2018).
+It is designed to compute NMR spin relaxation parameters and fit them to experiment,
+based on molecular dynamics simulations data and some estimate of global isotropic tumbling.
 
-Optimally speaking, the user should already possess a centered solute trajectory, in which
+The README will provide **general** information only, and 
+hypothetical use cases are provided at the end of this document.
+Please examine the help documentation for most script by invoking "-h".
+
+## Inputs to the workflow
+(1) The user should already possess a centered solute trajectory, in which
 the entire tumbling molecule(s) remains unbroken by PBC boundary conditions.
-The solute trajectory can then be read by our PLUMED2 [fork](https://github.com/zharmad/plumed2)
+The solute trajectory can then be read by our [PLUMED2 fork](https://github.com/zharmad/plumed2)
 that computes quaternion orientations.
-While this can normally be done entirely within PLUMED2,
+While the solute pre-processing can be done entirely within PLUMED2,
 it will not spot mistakes when, say, a dimer is suddenly split by the PBC into two components.
-Far safer for you to verify independently that the trajectory is without mistakes.
+Thus, far safer for you to verify independently that the trajectory is properly processed.
 
 Alternatively, the quaternion trajectory can be computed by other software
 such as the [NAMD](http://www.ks.uiuc.edu/Research/namd) "orientation" collective variable.
 In this case, you are free to bug me with a working example
 so that I can include code to read the NAMD outputs and cross-check frame definitions.
+
+(2) The majority of molecular forcefields underpredict the viscosity of water solvents,
+some of them intentionally so as to expedite sampling. Having an independent estimate, *e.g*.
+from [HYDROPRO](http://leonardo.inf.um.es/macromol/programs/hydropro/hydropro.htm) or
+[ARMOR-ROTDIF](https://bitbucket.org/kberlin/armor/wiki/Home) will allow you to
+skip the quaternion computation step if you are satisfied with structure-based
+predictions of global tumbling.
 
 ## Installation
 
@@ -58,14 +71,35 @@ Once the paper is accepted, the contents of this repo and link to he paper will 
 # Overall workflow starting from raw MD trajectory output.
 
 The file `run-all.bash` contains the overall workflow steps
-that string together all of the components, such as:
+that string together all of the primary components:
+
 1. center-solute-gromacs.bash (GROMACS)
+    - This calls GROMACS to pre-process a trajectory to its solute trajectory.
+    - KEY output: **solute.xtc** for the complete solute trajectory.
 2. create-reference-pdb.bash (GROMACS)
-3. plumed-quat-template.dat (PLUMED)
-4. calculate-dq-distribution.py
-5. calculate-Ct-from-traj.py
-6. calculate-fitted-Ct.py
-7. calculate-relaxations-from-Ct.py
+    - This calls GROMACS to create some file representing the reference frame.
+    - KEY output: **reference.pdb** for the frames and atoms over which the tumlbing domain is defined.
+3. plumed driver -p plumed-quat-template.dat (PLUMED)
+    - This calls the PLUMED fork to compute an orientation trajectory.
+    - It selects all atoms that have an occupancy > 0.0 to be part of the reference frame.
+    - KEY output: **colvar-qorient** for the orientation trajectory.
+4. python calculate-dq-distribution.py
+    - This reads the solute trajectory to compute global tumbling.
+    - It produces the rotational diffusion tensors and quaternion rotations necessary to transform the reference frame into the principal axis frame.
+    - NB: The principal axis frame is where the axes of the rotational diffusion tensor D is defined and diagonalised.
+    - KEY outputs: **rotdif-iso.dat** for isotropic D, **rotdif-aniso2.dat** for axisymmetric D, **rotdif-aniso_q.dat** for PAF rotations as a function of dt.
+5. python calculate-Ct-from-traj.py
+    - This reads the solute trajectory to compute local autocorrelation functions, and bond vector distributions.
+    - It requires a quaternion rotation operatation if the reference PDB is not already in the principal axis frame.
+    - KEY output: **rotdif_Ctint.dat**
+6. python calculate-fitted-Ct.py
+    - This takes a set of autocorrelations and fits expeonential decay components.
+    - KEY output: **rotdif_fittedCt.dat**
+7. python calculate-relaxations-from-Ct.py
+    - This combines the global and local tumbling factors to prodcue an NMR prediction.
+    - Fits to experiments occur in this step.
+    - KEY outputs: **rotdif_R1.dat**,  **rotdif_R2.dat**, **rotdif_NOE.dat**
+
 The global script runs through each step of the process and checks for the
 existance of results from previous invocations.
 
