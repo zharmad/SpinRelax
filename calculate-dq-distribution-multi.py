@@ -206,7 +206,7 @@ def conduct_exponential_fit(xlist, ylist, C0, C1):
     yguess=[ylist[0],ylist[1]]
     guess=obtain_exponential_guess(xguess, yguess, C1)
     print( '= = = guessed initial tau: ', guess )
-    fitOut = fmin_powell(powell_expdecay, guess, args=(xlist, ylist, C0, C1))
+    fitOut = fmin_powell(powell_expdecay, guess, args=(xlist, ylist, C0, C1), full_output=True)
     print( '= = = = Tau obtained: ', fitOut[0] )
     return fitOut[0]
 
