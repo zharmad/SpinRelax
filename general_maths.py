@@ -9,6 +9,21 @@ def list_identical(u,v):
             return False
     return True
 
+def list_get_map(lSource, lTarget, bValue=False):
+    """
+    Mapping from listA to listB, where elements are identical.
+    It is expected that every item in lTarget will be mapped. 
+    """
+    out=[]
+    for x in lTarget:
+        t=np.where(lSource==x)[0]
+        if len(t)>0:
+            if bValue:
+                out.append(lSource[t[0]])
+            else:
+                out.append(t[0])
+    return out
+
 def array_identical(u, v):
     """
     compares whether all elements are equal between two numpy arrays.

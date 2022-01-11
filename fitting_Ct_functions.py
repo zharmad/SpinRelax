@@ -23,7 +23,10 @@ class autoCorrelations:
         self.DeltaT   = OrderedDict()
         self.Decay    = OrderedDict()
         self.dDecay   = OrderedDict()
-
+        
+    def get_names(self):
+        return np.array( [k for k in self.model.keys()] )
+    
     def get_params_as_list(self):
         keys = self.model.keys()
         S2  = [ self.model[k].S2  for k in keys ]
@@ -42,6 +45,10 @@ class autoCorrelations:
         self.nModels = len(self.model)
         return self.model[key]
 
+    def get_nth_model(self, n):
+        keys=self.get_names()
+        return self.model[keys[n]]
+    
     def remove_model(self, key=None, index=None):
         if not key is None:
             self.model.pop(key)
@@ -60,10 +67,14 @@ class autoCorrelations:
         for k, n in zip(self.model.keys(),listNames):
             self.model[k].name=n
 
+    def report(self):
+        print("Number of C(t) models loaded:", self.nModels )
+        print("Number of targets loaded:", self.nTargets )
+            
     def report_all_models(self):
         for m in self.model.values():
             m.report()
-
+            
     def add_target(self, key, DeltaT, Decay, dDecay):
         self.DeltaT[key] = DeltaT
         self.Decay[key]  = Decay
@@ -78,6 +89,14 @@ class autoCorrelations:
             for i, k in enumerate(keys):
                 self.add_target(k, DeltaT[i], Decay[i], dDecay[i])
 
+    def rescale_time(self, f):
+        if self.nModels > 0:
+            for k in self.model.keys():
+                self.model[k].tau *= f
+        if self.nTargets > 0:
+            for k in self.model.keys():
+                self.DeltaT[k] *= f
+                            
     def export(self, fileName, style='xmgrace'):
         fp = open(fileName, 'w')
         s = 0
@@ -101,7 +120,7 @@ class autoCorrelations:
 
 class autoCorrelationModel:
     """
-    A class thaat handles modelling of an autocorrelation function via a set of exponentials.
+    A class that handles modelling of an autocorrelation function via a set of exponentials.
     Contains basic fitting and reporting funcationalities.
 
     The transient components are normally sorted on creation from fast to slow.
@@ -119,6 +138,7 @@ class autoCorrelationModel:
         self.nComps  = len(self.C)
         self.nParams = len(self.C)+len(self.tau)
         self.bHasFit = False
+        self.zeta    = 1.0
         if bS2Fast:
             self.nParams += 1
             if self.S2 == None:
@@ -138,7 +158,7 @@ class autoCorrelationModel:
             sys.exit(1)
         if not self.bS2Fast:
             #  All components must add to 1.0
-            sumS = self.S2 + np.sum(self.C)
+            sumS = self.S2+np.sum(self.C)
             if not np.all( (np.isclose(sumS, 1.0, rtol=1e-6)) ):
                 print("= = = ERROR: Contribution of components in fitParam initialisation do not sum sufficeintly close to 1.00!")
                 sys.exit(1)
@@ -181,6 +201,16 @@ class autoCorrelationModel:
             self.dtau = self.dtau[inds]
             self.dC   = self.dC[inds]
 
+    def set_zeta(self, zeta):
+        """
+        QM zero-point vibrations, which universally damps all components constants C and S2,
+        leaving the sum to be <1.0 where S2Fast is not involved.
+        This is meant for downstram spin relaxation computations that ignore the S2Fast component.
+        It currently does not affect the test for unity or the computation of S2fast.
+        The fast component should ideally incorporate for zeta such that the total sum is still 1.0.
+        """
+        self.zeta=zeta
+            
     def report(self, style='stdout', fp=sys.stdout ):
         if style == 'stdout':
             print( "Name: %s" % self.name, file=fp )
@@ -227,7 +257,7 @@ class autoCorrelationModel:
         """
         Vectorised computation function. dt is expected to be a 1-D array that is broadcast to a new axis 0.
         """
-        return self.S2+np.sum(self.C[:,np.newaxis]*np.exp(-1.0*DeltaT[np.newaxis,:]/self.tau[:,np.newaxis]),axis=0)
+        return self.zeta*( self.S2+np.sum(self.C[:,np.newaxis]*np.exp(-1.0*DeltaT[np.newaxis,:]/self.tau[:,np.newaxis]),axis=0) )
 
     def calc_chiSq(self, DeltaT, Decay, dDecay=None):
         if dDecay is None:

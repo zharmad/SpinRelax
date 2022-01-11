@@ -339,176 +339,70 @@ def print_fitting_params_headers( names, values, units, bFit ):
         sumstr=sumstr+tmpstr
     return sumstr
 
-# Read the formatted file headers in _fittedCt.dat. These are of the form:
-# # Residue: 1
-# # Chi-value: 1.15659e-05
-# # Param XXX: ### +- ###
-def read_fittedCt_file(filename):
-    resid=[]
-    param_name=[]
-    param_val=[]
-    tmp_name=[]
-    tmp_val=[]
-    for raw in open(filename):
-        if raw == "" or raw[0]!="#":
-            continue
+# = ============= New def section.   
 
-        line=raw.split()
-        if 'Residue' in line[1]:
-            resid.append(int(line[-1]))
-            if len(tmp_name)>0:
-                param_name.append(tmp_name)
-                tmp_name=[]
-            if len(tmp_val)>0:
-                param_val.append(tmp_val)
-                tmp_val=[]
-        elif 'Param' in line[1]:
-            tmp_name.append(line[2][:-1])
-            tmp_val.append(float(line[-3]))
-
-    if len(tmp_name)>0:
-        param_name.append(tmp_name)
-        tmp_name=[]
-    if len(tmp_val)>0:
-        param_val.append(tmp_val)
-        tmp_val=[]
-
-    if len(resid) != len(param_name) != len(param_val):
-        print( "= = ERROR in read_fittedCt_file: the header entries don't have the same number of residues as entries!", file=sys.stderr )
-        sys.exit(1)
-    return resid, param_name, param_val
-
-#def read_exp_relaxations(filename):
-#    """
-#    This will return a masked array.
-#    """
-#    bHasHeader=False
-#    Bfields=[]
-#    resID=[]
-#    block=[]
-#
-#    #Read file line by line as usual
-#    for l in open(fn):
-#        if len(l)==0:
-#            continue
-#        line = l.split()
-#        if line[0] == "#":
-#            if "Bfield" in l:
-#                print( "= = Reading Experimental File: found a Magnetib field entry", l, file=sys.stderr )
-#                Bfields.append( float(line[-1]) )
-#            elif "R1" in l:
-#                bHasHeader=True
-#        else:
-#            resid=float(l[0])
-#            data=[ float(i) for i in l[1:] ]
-
-def convert_LambertCylindricalHist_to_vecs(hist, edges):
-    print( "= = = Reading histogram in Lambert-Cylindral projection, and returning distribution of non-zero vectors." )
-    # = = = Expect histograms as a list of 2D entries: (nResidues, phi, cosTheta)
-    nResidues   = hist.shape[0]
-    phis   = 0.5*(edges[0][:-1]+edges[0][1:])
-    thetas = np.arccos( 0.5*(edges[1][:-1]+edges[1][1:]) )
-    pt = np.moveaxis( np.array( np.meshgrid( phis, thetas, indexing='ij') ), 0, -1)
-    binVecs = gm.rtp_to_xyz( pt, vaxis=-1, bUnit=True )
-    del pt, phis, thetas
-    print( "    ...shapes of first histogram and average-vector array:", hist[0].shape, binVecs.shape )
-    nPoints = hist[0].shape[0]*hist[0].shape[1]
-    # = = = just in case this is a list of histograms..
-    # = = = Keep all of the zero-weight entries vecause it keeps the broadcasting speed.
-    #vecs    = np.zeros( (nResidues, nPoints, 3 ), dtpye=binVecs.dtype )
-    #weights = np.zeros_like( vecs )
-    return np.repeat( binVecs.reshape(nPoints,3)[np.newaxis,...], nResidues, axis=0), \
-           np.reshape( hist, ( nResidues, nPoints) )
-    # return vecs, weights
-
-def read_vector_distribution_from_file( fileName ):
-    """
-    Returns the vectors, and mayber weights whose dimensions are (nResidue, nSamples, 3).
-    Currently supports only phi-theta formats of vector definitions.
-    For straight xmgrace data files, this corresponds to the number of plots, then the data-points in each plot.
-    """
-    weights = None
-    if fileName.endswith('.npz'):
-        # = = = Treat as a numpy binary file.
-        obj = np.load(fileName, allow_pickle=True )
-        # = = = Determine data type
-        resIDs = obj['names']
-        if obj['bHistogram']:
-            if obj['dataType'] != 'LambertCylindrical':
-                print( "= = = Histogram projection not supported! %s" % obj['dataType'], file=sys.stderr )
-                sys.exit(1)
-            vecs, weights = convert_LambertCylindricalHist_to_vecs(obj['data'], obj['edges'])
+def parse_rotdif_params(D=None, tau=None, aniso=None):
+    #Determine diffusion model.
+    if args.D is None:
+        if args.tau is None:
+            print("= = ERROR: No global tumbling parameters given!", file=sys.stderr)
+            sys.exit(1)
         else:
-            if obj['dataType'] != 'PhiTheta':
-                print( "= = = Numpy binary datatype not supported! %s" % obj['dataType'], file=sys.stderr )
-                sys.exit(1)
-            # = = = Pass phi and theta directly to rtp_to_xyz
-            vecs = gm.rtp_to_xyz( obj['data'], vaxis=-1, bUnit=True )
+            Diso  = 1.0/(6*args.tau)
+            if aniso is None or aniso == 1.0:
+                return sd.globalRotationalDiffusion_Isotropic(D=Diso)
+            else:
+                return sd.globalRotationalDiffusion_Axisymmetric(D=[Diso, aniso])
     else:
-        resIDs, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
-        vecs = gm.rtp_to_xyz( np.stack( (dist_phis,dist_thetas), axis=-1), vaxis=-1, bUnit=True )
-    if not weights is None:
-        print( "    ...converted input phi_theta data to vecXH / weights, whose shapes are:", vecs.shape, weights.shape )
-    else:
-        print( "    ...converted input phi_theta data to vecXH, whose shape is:", vecs.shape )
-    return resIDs, vecs, weights
-
+        tmp   = [float(x) for x in regexp_split('[, ]', D) if len(x)>0]
+        Diso  = tmp[0]
+        if len(tmp)==1:
+            if aniso is None:
+                return sd.globalRotationalDiffusion_Isotropic(D=Diso)
+            else:
+                return sd.globalRotationalDiffusion_Axisymmetric(D=[Diso, aniso])
+        elif len(tmp)==2:
+            return sd.globalRotationalDiffusion_Axisymmetric(D=tmp, bConvert=True)
+        else:
+            print("WARNING: fully anisotropic global rotdif not implemented.", file=sys.stderr)
+            return None        
+        
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='Read fitted-Ct values and calculation of relaxation parameters'
-                                     'based on a combination of the local autocorrelation and global tumbling by assumption of '
-                                     'separability, i.e.: Ct = C_internal(t) * C_external(t).\n'
-                                     'Global tumbling parameters nmust be given in some form.',
+    parser = argparse.ArgumentParser(description='Optimisation of spin relaxation parameters based on multiple experiments, '
+                                     'based on the simulated and given local and global tumlbing chaaracteristics.\n'
+                                     'operates similarly to calcualte_relaxations_from_Ct. All internal units are in picoseconds',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-f', '--infn', type=str, dest='in_Ct_fn',
-                        help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')
+    parser.add_argument('expFiles', type=str, nargs='+',
+                        help='One or more formatted spin relaxation experimental data, resembling this:\n'
+                             '# Type NOE\n'                        
+                             '# NucleiA   15N\n'
+                             '# NucleiB    1H\n'
+                             '# Frequency 600.133\n'
+                             '1 0.9 0.05\n'
+                             '...'
+                       )
+    parser.add_argument('--ROTDIF', dest='inputFileROTDIF', type=str, default=None,
+                        help='As an alternative to the above, a ROTDIF-format input file can be given.')
     parser.add_argument('-o', '--outpref', type=str, dest='out_pref', default='out',
                         help='Output file prefix.')
-    parser.add_argument('-v','--vecfn', type=str, dest='vecfn', default=None,
-                        help='Average vector orientations of the nuclei, e.g. N-H in a protein.'
-                             'Without an accompanying quaternion, this is assumed to be in the principal axes frame.')
+    parser.add_argument('-f', '--infn', type=str, dest='in_Ct_fn', required=True,
+                        help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')                       
     parser.add_argument('--distfn', type=str, dest='distfn', default=None,
                         help='Vector orientation distribution of the X-H dipole, in a spherical-polar coordinates.'
                              'Without an accompanying quaternion, this is assumed to be in the principal axes frame.')
     parser.add_argument('--shiftres', type=int, default=0,
                         help='Shift the MD residue indices, e.g., to match the experiment.')
-    parser.add_argument('-e','--expfn', type=str, dest='expfn', default=None,
-                        help='Experimental values of R1, R2, and NOE in a 4- or 7-column format.'
-                             '4-column data is assumed to be ResID/R1/R2/NOE. 7-column data is assumed to also have errors.'
-                             'Giving this file currently will compute the rho equivalent and quit, unless --opt is also given.')
-    parser.add_argument('--ref', type=str, dest='reffn', default=None,
-                        help='Reference PDB file for an input trajectory to determine distribution of X-H vectors.'
-                             'WARNING: not yet implemented.')
-    parser.add_argument('--refHsel', type=str, default='name H',
-                        help='MDTraj selection syntax to extract the H-atoms.')
-    parser.add_argument('--refXsel', type=str, default='name N and not resname PRO',
-                        help='MDTraj selection syntax to extract the heavy atoms.')
-    parser.add_argument('--traj', type=str, dest='trjfn', default=None,
-                        help='Input trajectory from which X-H vector distributions will be read.')
-    parser.add_argument('-q', '--q_rot', type=str, dest='qrot_str', default='',
-                        help='Rotation quaternion from the lab frame of the vectors into the PAF, where D is diagonalised.'
-                             'Give as "q_w q_x q_y q_z"')
-    parser.add_argument('-n', '--nuclei', type=str, dest='nuclei', default='NH',
-                        help='Type of nuclei measured by the NMR spectrometer. Determines the gamma constants used.')
-    parser.add_argument('-B', '--B0', type=float, dest='B0', default=None,
-                        help='Magnetic field of the nmr spectrometer in T. overwritten if the frequency is given.')
-    parser.add_argument('-F', '--freq', type=float, dest='Hz', default=None,
-                        help='Proton frequency of the NMR spectrometer in Hz. Overwrites B0 argument when given.')
-    parser.add_argument('--Jomega', action='store_true',
-                        help='Calculate Jomega instead of R1, R2, NOE, and rho.')
     parser.add_argument('--tu', '--time_units', type=str, dest='time_unit', default='ps',
                         help='Time units of the autocorrelation file.')
     parser.add_argument('--tau', type=float, dest='tau', default=None,
                         help='Isotropic relaxation time constant. Overwritten by Diffusion tensor values when given.')
-    parser.add_argument('--aniso', type=float, dest='aniso', default=1.0,
+    parser.add_argument('--aniso', type=float, dest='aniso', default=None,
                         help='Diffusion anisotropy (prolate/oblate). Overwritten by Diffusion tensor values when given.')
     parser.add_argument('-D', '--DTensor', type=str, dest='D', default=None,
                         help='The Diffusion tensor, given as Diso, Daniso, Drhomb. Entries are either comma-separated or space separated in a quote. '
                              'Note: In axisymmetric forms, when Daniso < 1 the unique axis is considered to point along x, and'
                              'when Daniso > 1 the unique axis is considered to point along z.')
-    parser.add_argument('--rXH', type=float, default=np.nan,
-                        help='Alternative formulation to zeta by setting the effective bond-length rXH, which in 15N--1H is 1.02 Angs. by default.'
-                            'Case says this can be modified to 1.04, or 1.039 according to LeMasters.')
     parser.add_argument('--zeta', type=float, default=0.890023,
                         help='Input optional manual zeta factor to scale-down'
                              'the S^2 of MD-based derivations by zero-point vibrations known in QM.'
@@ -531,178 +425,60 @@ if __name__ == '__main__':
                              'An additional convergence graph will be created.')
     parser.add_argument('--tol', type=float, default=1e-6,
                         help='The tolerance criteria for terminating the global/local optimisation cycles early, as a fractional change.')
-    parser.add_argument('--theoretical', dest='bTheoretical', action='store_true',
-                        help='Compute the theoretical spin relaxations corresponding to a rigid sllipsoid model and no internal autocorrelation motions. '
-                             'Script exits immediately after reporting, and no fitting functionality is coded.'
-                             'Two use cases are possible: '
-                             '(1) Rigid sphere relxation. '
-                             '(2) Axisymmetric diffusion, if vector directions are given.')
 
-    # = = = Section 0.0 Initial paramerter setting.
+    # = = = Initial parameter setting.
     time_start=time.time()
-
     args = parser.parse_args()
-    fittedCt_file = args.in_Ct_fn
-    out_pref=args.out_pref
-    bHaveDy = False
-    if not args.opt is None:
-        if args.expfn is None:
-            print( "= = = ERROR: Cannot conduct optimisation without a target experimental scattering file! (Missing --expfn )", file=sys.stderr )
-            sys.exit(1)
-        bOptPars = True
-        optMode = args.opt
-        expt_data_file=args.expfn
-    else:
-        bOptPars = False
-    bJomega = args.Jomega
-    zeta = args.zeta
-    if zeta != 1.0:
-        print( " = = Applying scaling of all C(t) magnitudes to account for zero-point QM vibrations (zeta) of %g" % zeta )
 
-
-    # Set up relaxation parameters.
-    nuclei_pair  = args.nuclei
-    timeUnit = args.time_unit
-    if not args.Hz is None:
-        B0 = 2.0*np.pi*args.Hz / 267.513e6
-    elif not args.B0 is None:
-        B0 = args.B0
-    else:
-        print( "= = = ERROR: Must give either the background magnetic field or the frequency! E.g., --B0 14.0956", file=sys.stderr )
-        sys.exit(1)
-
-    # = = = Paramters for global/local meta-optimisation.
-    nRefinementCycles   = args.cycles
-    refinementTolerance = args.tol
-
-    # = = = Set up the relaxation information from library.
-    relax_obj = sd.relaxationModel(nuclei_pair, B0)
-    relax_obj.set_time_unit(timeUnit)
-    print( "= = = Setting up magnetic field:", B0, "T" )
-    print( "= = = Angular frequencies in ps^-1 based on given parameters:" )
-    relax_obj.print_frequencies()
-    print( "= = = Gamma values: (X) %g , (H) %g rad s^-1 T^-1" % (relax_obj.gX.gamma, relax_obj.gH.gamma) )
-
-    #Determine diffusion model.
-    if args.D is None:
-        if args.tau is None:
-            diff_type = 'direct'
-            Diso = 0.0
-        else:
-            tau_iso=args.tau
-            Diso  = 1.0/(6*args.tau)
-            if args.aniso != 1.0:
-                aniso = args.aniso
-                diff_type = 'symmtop'
-            else:
-                diff_type = 'spherical'
-    else:
-        tmp   = [float(x) for x in regexp_split('[, ]', args.D) if len(x)>0]
-        Diso  = tmp[0]
-        if len(tmp)==1:
-            diff_type = 'spherical'
-        elif len(tmp)==2:
-            aniso = tmp[1]
-            diff_type = 'symmtop'
-        else:
-            aniso = tmp[1]
-            rhomb = tmp[2]
-            diff_type = 'anisotropic'
-        tau_iso = 1.0/(6*Diso)
-
-    vecXH=None ; vecXHweights=None
-    if diff_type=='direct':
-        print( "= = = No global rotational diffusion selected. Calculating the direct transform." )
-        relax_obj.set_rotdif_model('direct_transform')
-    elif diff_type=='spherical':
-        print( "= = = Using a spherical rotational diffusion model." )
-        relax_obj.set_rotdif_model('rigid_sphere_D', Diso)
-    elif diff_type=='symmtop':
-        Dperp = 3.*Diso/(2+aniso)
-        Dpar  = aniso*Dperp
-        print( "= = = Calculated anisotropy to be: ", aniso )
-        print( "= = = With Dpar, Dperp: %g, %g %s^-1" % ( Dpar, Dperp, timeUnit) )
-        relax_obj.set_rotdif_model('rigid_symmtop_D', Dpar, Dperp)
-        #relax_obj.rotdifModel = sd.globalRotationalDiffusion_Axisymmetric(D=[Dpar,Dperp], bConvert=True)
-        # Read quaternion
-        if args.qrot_str != "":
-            bQuatRot = True
-            q_rot = np.array([ float(v) for v in args.qrot_str.split() ])
-            if not qops.qisunit(q_rot):
-                q_rot = q_rot/np.linalg.norm(q_rot)
-        else:
-            bQuatRot = False
-
-        # Read the source of vectors.
-        bHaveVec = False ; bHaveVDist = False
-        if not args.vecfn is None:
-            print( "= = = Using average vectors. Reading X-H vectors from %s ..." % args.vecfn )
-            resNH, vecXH = gs.load_xys(args.vecfn, dtype=float32)
-            bHaveVec = True
-        elif not args.distfn is None:
-            print( "= = = Using vector distribution in spherical coordinates. Reading X-H vector distribution from %s ..." % args.distfn )
-            resNH, vecXH, vecXHweights = read_vector_distribution_from_file( args.distfn )
-            resNH = [ int(x)+args.shiftres for x in resNH ]
-            bHaveVDist = True
-            bHaveDy = True ;# We have an ensemble of vectors now.
-        elif not args.reffn is None:
-            # WARNING: not implemented
-            resNH, vecXH = extract_vectors_from_structure( \
-                pdbFile=args.reffn, trjFile=args.trjfn, Hsel = args.refHsel, Xsel = args.refXsel )
-            resNH = [ int(x)+args.shiftres for x in resNH ]
-            if len(vecXH.shape) == 3:
-                bHaveVDist = True
-                bHaveDy = True
-
-        elif not args.bTheoretical:
-            print( "= = = ERROR: non-spherical diffusion models require a vector source! "
-                   "Please supply the average vectors or a trajectory and reference!", file=sys.stderr )
-            sys.exit(1)
-
-        if bHaveVec or bHaveVDist:
-            print( "= = = Note: the shape of the X-H vector distribution is:", vecXH.shape )
-            if bQuatRot:
-                print( "    ....rotating input vectors into PAF frame using q_rot." )
-                vecXH = qs.rotate_vector_simd(vecXH, q_rot)
-                print( "    ....X-H vector input processing completed." )
-
-# = = = Now that the basic stats habe been stored, check for --rigid shortcut.
-#       This shortcut will exit after this if statement is run.
-    if args.bTheoretical:
-        if diff_type == 'direct':
-            print( "= = = ERROR: Rigid-sphere argument cannot be applied without an input for the global rotational diffusion!", file=sys.stderr )
-            sys.exit(1)
-        if diff_type == 'spherical' or diff_type == 'anisotropic':
-            num_vecs=1 ; S2_list=[zeta] ; consts_list=[[0.]] ; taus_list=[[99999.]] ; vecXH=[]
-        else:
-            num_vecs=3 ; S2_list=[zeta,zeta,zeta] ; consts_list=[[0.],[0.],[0.]] ; taus_list=[[99999.],[99999.],[99999.]] ; vecXH=np.identity(3)
-        datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH)
-        if diff_type == 'spherical':
-            print( "...Isotropic baseline values:" )
-        else:
-            print( "...Anistropic axial baseline values (x/y/z):" )
-        print( "R1:",  str(datablock[0]).strip('[]') )
-        print( "R2:",  str(datablock[1]).strip('[]') )
-        print( "NOE:", str(datablock[2]).strip('[]') )
-        sys.exit()
-# = = = End shortcut.
-
-# = = = Read fitted C(t). For each residue, we expect a set of parameters
-#       corresponding to S2 and the other parameters.
-    autoCorrs = fitCt.read_fittedCt_parameters( fittedCt_file )
-    if autoCorrs.nModels == 0:
+    # = = = Declare internal time units.
+    standardTimeUnit = 'ps'
+    
+    # = = = Parse and set up local tumbling model
+    localCtModel = fitCt.read_fittedCt_parameters( args.in_Ct_fn )
+    if localCtModel.nModels == 0:
         print( "= = = ERROR: The fitted-Ct file %s was read, but did not yield any usable parameters!" % fittedCt_file )
         sys.exit(1)
-    num_vecs  = autoCorrs.nModels
-    sim_resid = [ int(k) for k in autoCorrs.model.keys() ]
-    if diff_type == 'symmtop' or diff_type == 'anisotropic':
-        sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct -versus- vectors as defined in anisotropy")
+    #localCtModel.report()
+    #if args.time_unit != standardTimeUnit:
+    #    f = sd._return_time_fact(standardTimeUnit)/sd._return_time_fact(args.time_unit)
+    #    localCtModel.scale_time(f)        
+    nResidSim = localCtModel.nModels
+    residSim  = [ int(k) for k in localCtModel.model.keys() ]
+    #if diff_type == 'symmtop' or diff_type == 'anisotropic':
+    #    sanity_check_two_list(sim_resid, resNH, "resid from fitted_Ct -versus- vectors as defined in anisotropy")
+                        
+    # = = = Parse and set up global tumbling model
+    globalRotDif = parse_rotdif_params(args.D, args.tau, args.aniso)
+    if not args.distfn is None:
+        globalRotDif.import_frame_vectors(args.distfn)
+    #globalRotDif.report()
+    
+    #if bQuatRot:
+    #    print( "    ....rotating input vectors into PAF frame using q_rot." )
+    #    vecXH = qs.rotate_vector_simd(vecXH, q_rot)
+    #    print( "    ....X-H vector input processing completed." )
+    
+    # = = = Parse and set up individual experiments.
+    objExpts = sd.spinRelaxationExperiments(globalRotDif, localCtModel)
+
+    for f in args.expFiles:
+        objExpts.add_experiment( f )
+    if args.zeta != 1.0:
+        print( " = = Applying scaling of all C(t) magnitudes to account for zero-point QM vibrations (zeta) of %g" % args.zeta )
+        objExpts.set_zeta( args.zeta )
+    #objExpts.report()
+    objExpts.map_experiment_peaknames_to_models()
+    
+    # = = = Parameters for global/local meta-optimisation.
+    nRefinementCycles   = args.cycles
+    refinementTolerance = args.tol
 
 # = = = Section interpreting CSA input, check if it a custom single value for backwards compatibility, or an actual file.
     CSAvaluesArray = None
     if args.csa is None:
-        print( "= = = Using default CSA value: %g" % relax_obj.gX.csa )
-        CSAvaluesArray = np.repeat( relax_obj.gX.csa, num_vecs )
+        print( "= = = Using default CSA value respective to each experiment.")
+        #print( objExpts.spinrelax[0].angFreq.gA.csa )
+        #CSAvaluesArray = np.repeat( relax_obj.gX.csa, num_vecs )
     else:
         # = = = Check is it is a numeric input and/or a file. File takes precedence.
         try:
@@ -718,14 +494,8 @@ if __name__ == '__main__':
         except ValueError:
             bIsNumeric=False
 
-        if bFileFound:
-            # = = = First check that we're not optimising with CSA.
-            #if bOptPars and 'CSA' in optMode:
-            #    print( "= = = Note: Will turn on per-residue CSA optimisation flag, since a per-resuidue CSA input was given!" )
-            #    bCSAPerResidue = True
-            
+        if bFileFound:            
             residCSA, CSAvaluesArray = gs.load_xy( args.csa )
-            relax_obj.gX.csa = np.nan
             print( "= = = Using input CSA values from file %s - please ensure that the resid definitions are identical to the other files." % args.csa )
             sanity_check_two_list(sim_resid, residCSA, "resid from fitted_Ct -versus- as defined in CSA file ")
             if np.fabs(CSAvaluesArray[0]) > 1.0:
@@ -741,14 +511,25 @@ if __name__ == '__main__':
         else:
             print( "= = = ERROR at parsing the --csa argument!", file=sys.stderr )
             sys.exit(1)
-
-    # = = Temporary hybridisation
-    #listZeta = np.repeat(zeta, autoCorrs.nModels)
-    S2_list, consts_list, taus_list, dummy = autoCorrs.get_params_as_list()
-    for i in range(autoCorrs.nModels):
-        S2_list[i]     *= zeta
-        consts_list[i] *= zeta
-
+    
+    objExpts.set_CSA_values(CSAvaluesArray)
+    
+    # = = = evaluation section. Determine what is to be done wioth the data.
+    listOpt = args.opt
+    
+    if listOpt is None:
+        # = = = No optimisation. Simply print the direct prediction for each experiment.
+        objExpts.eval_all()
+        for sp in objExpts.spinrelax:
+            outputFile="%s_%sT_%s.dat" % (args.out_pref, str(round(sp.get_magnetic_field())), sp.get_name())
+            fp=open(outputFile,'w')
+            sp.print_values(style='xmgrace', fp=fp)
+            fp.close()        
+        for i, sp in enumerate(objExpts.spinrelax):
+            print( sp.calc_chisq(objExpts.data[i]['y'],objExpts.data[i]['dy'], objExpts.mapModelNames[i] ))
+        sys.exit()
+    
+    
     # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
     param_names=("Diso", "zeta", "CSA", "chi")
     param_scaling=( 1.0, zeta, 1.0e6, 1.0 )
@@ -757,7 +538,7 @@ if __name__ == '__main__':
     #relax_obj.rotdif_model.change_Diso( Diso )
     if not bOptPars:
         # = = = Section 1. No minimisation is applied against experimental data.
-        if bJomega:
+        if bReportJomega:
             datablock = _obtain_Jomega(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights)
         else:
             datablock = _obtain_R1R2NOErho(relax_obj, num_vecs, S2_list, consts_list, taus_list, vecXH, weights=vecXHweights, CSAvaluesArray = CSAvaluesArray )
@@ -1004,7 +785,7 @@ if __name__ == '__main__':
     print( " = = Completed Relaxation calculations." )
 
 # = = = Print
-    if bJomega:
+    if bReportJomega:
         fp = open(out_pref+'_Jw.dat', 'w')
         if optHeader != '':
             print( '%s' % optHeader, file=fp )
