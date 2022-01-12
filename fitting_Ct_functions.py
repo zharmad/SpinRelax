@@ -35,6 +35,13 @@ class autoCorrelations:
         S2Fast = [self.model[k].calc_S2Fast() for k in keys ]
         return S2, C, tau, S2Fast
 
+    def set_zeta(self, zeta):
+        for m in self.model.values():
+            m.set_zeta(zeta)
+    def get_zeta(self):
+        for m in self.model.values():
+            return m.get_zeta()        
+    
     def add_model(self, key, name=None, listC=[], listTau=[], S2=None, bS2Fast=False, bSort=True):
         """
         Return the last added model for further manipulation.
@@ -210,7 +217,10 @@ class autoCorrelationModel:
         The fast component should ideally incorporate for zeta such that the total sum is still 1.0.
         """
         self.zeta=zeta
-            
+
+    def get_zeta(self):
+        return self.zeta
+        
     def report(self, style='stdout', fp=sys.stdout ):
         if style == 'stdout':
             print( "Name: %s" % self.name, file=fp )

@@ -11,62 +11,6 @@ import fitting_Ct_functions as fitCt
 import spectral_densities as sd
 from scipy.optimize import fmin_powell
 
-# There may be minor mistakes in the selection text. Try to identify what is wrong.
-def confirm_seltxt(ref, Hseltxt, Xseltxt):
-    bError=False
-    indH = mol.topology.select(Hseltxt)
-    indX = mol.topology.select(Xseltxt)
-    numH = len(indH) ; numX = len(numX)
-    if numH == 0:
-        bError=True
-        t1 = mol.topology.select('name H')
-        t2 = mol.topology.select('name HN')
-        t3 = mol.topology.select('name HA')
-        print( "    .... ERROR: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3) )
-    if numX == 0:
-        bError=True
-        t1 = mol.topology.select('name N')
-        t2 = mol.topology.select('name NT')
-        print( "    .... ERROR: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2) )
-
-    resH = [ mol.topology.atom(x).residue.resSeq for x in indH ]
-    resX = [ mol.topology.atom(x).residue.resSeq for x in indX ]
-    if resX != resH:
-        bError=True
-        print( "    .... ERROR: The residue lists are not the name between the two selections:" )
-        print( "    .... Count for X (%i)" % numX, resX )
-        print( "    .... Count for H (%i)" % numH, resH )
-    if bError:
-        sys.exit(1)
-
-    return indH, indX, resX
-
-def extract_vectors_from_structure( pdbFile, Hseltxt='name H', Xsel='name N and not resname PRO', trjFile=None ):
-
-    print( "= = = Using vectors as found directly in the coordinate files, via MDTraj module." )
-    print( "= = = NOTE: no fitting is conducted." )
-    import mdtraj as md
-
-    if not trjFile is None:
-        mol = md.load(trjFile, top=pdbFile)
-        print( "= = = PDB file %s and trajectory file %s loaded." % (pdbFile, trjFile) )
-
-    else:
-        omol = md.load(pdbFile)
-        print( "= = = PDB file %s loaded." % pdbFile )
-
-    indH, indX, resXH = confirm_seltxt(ref, Hsel, Xsel)
-
-    # Extract submatrix of vector trajectory
-    vecXH = np.take(mol.xyz, indH, axis=1) - np.take(mol.xyz, indX, axis=1)
-    vecXH = qs.vecnorm_NDarray(vecXH, axis=2)
-
-    # = = = Check shape and switch to match.
-    if vecXH.shape[0] == 1:
-        return resXH, vecXH[0]
-    else:
-        return resXH, np.swapaxes(vecXH,0,1)
-
 def sanity_check_two_list(listA, listB, string, bVerbose=False):
     if not gm.list_identical( listA, listB ):
         print( "= = ERROR: Sanity checked failed for %s!" % string )
@@ -120,7 +64,6 @@ def _obtain_Jomega(RObj, nSites, S2, consts, taus, vecXH, weights=None):
     # = = Should only happen with fully anisotropic models.
     print( "= = ERROR: Unknown rotdifModel in the relaxation object used in calculations!", file=sys.stderr )
     return []
-
 
 def _obtain_R1R2NOErho(RObj, nSites, S2, consts, taus, vecXH, weights=None, CSAvaluesArray=None):
     """
@@ -209,7 +152,6 @@ def optfunc_R1R2NOE_inner(datablock, expblock):
 def optfunc_R1R2NOE_new(params, *args):
     """
     Single residue CSA fitting. No global parameters used.
-    
     """
 #def optfunc_r1r2noe( params, args=(relax_obj, num_vecs, s2_list, consts_list, taus_list, vecXH, expblock), full_output=false )
     RObj=args[0]
@@ -388,9 +330,13 @@ if __name__ == '__main__':
                         help='Output file prefix.')
     parser.add_argument('-f', '--infn', type=str, dest='in_Ct_fn', required=True,
                         help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')                       
+    parser.add_argument('--refpdb', type=str, dest='refPDBFile', default=None,
+                        help='Reference PDB file to compute axisymmetric rotational diffusion using X-H bond vectors wound within. '
+                             'This assumes that the PDB file is already inthe principal-axis frame aligned with the diffusion tensor.')
     parser.add_argument('--distfn', type=str, dest='distfn', default=None,
-                        help='Vector orientation distribution of the X-H dipole, in a spherical-polar coordinates.'
-                             'Without an accompanying quaternion, this is assumed to be in the principal axes frame.')
+                        help='Vector orientation distribution of the X-H dipole in spherical-polar coordinates. '
+                             'This is used to compute axisymmetric rotational diffusion and overrules '
+                             'the reference PDB argument. Vectors assumed to be in the principal axes frame.')
     parser.add_argument('--shiftres', type=int, default=0,
                         help='Shift the MD residue indices, e.g., to match the experiment.')
     parser.add_argument('--tu', '--time_units', type=str, dest='time_unit', default='ps',
@@ -441,7 +387,7 @@ if __name__ == '__main__':
     #localCtModel.report()
     #if args.time_unit != standardTimeUnit:
     #    f = sd._return_time_fact(standardTimeUnit)/sd._return_time_fact(args.time_unit)
-    #    localCtModel.scale_time(f)        
+    #    localCtModel.scale_time(f)
     nResidSim = localCtModel.nModels
     residSim  = [ int(k) for k in localCtModel.model.keys() ]
     #if diff_type == 'symmtop' or diff_type == 'anisotropic':
@@ -449,8 +395,11 @@ if __name__ == '__main__':
                         
     # = = = Parse and set up global tumbling model
     globalRotDif = parse_rotdif_params(args.D, args.tau, args.aniso)
+    
     if not args.distfn is None:
         globalRotDif.import_frame_vectors(args.distfn)
+    elif not args.refPDBFile is None:
+        globalRotDif.import_frame_vectors_pdb(args.refPDBFile)
     #globalRotDif.report()
     
     #if bQuatRot:
@@ -465,8 +414,11 @@ if __name__ == '__main__':
         objExpts.add_experiment( f )
     if args.zeta != 1.0:
         print( " = = Applying scaling of all C(t) magnitudes to account for zero-point QM vibrations (zeta) of %g" % args.zeta )
-        objExpts.set_zeta( args.zeta )
+        objExpts.set_global_zeta( args.zeta )
     #objExpts.report()
+    
+    # = = = This mapping is necessary to match simulation names to experimental names,
+    #       as not all peaks are resolved or assigned in a given experimental conditiosn.
     objExpts.map_experiment_peaknames_to_models()
     
     # = = = Parameters for global/local meta-optimisation.
@@ -494,42 +446,49 @@ if __name__ == '__main__':
         except ValueError:
             bIsNumeric=False
 
-        if bFileFound:            
+        if bFileFound:
             residCSA, CSAvaluesArray = gs.load_xy( args.csa )
             print( "= = = Using input CSA values from file %s - please ensure that the resid definitions are identical to the other files." % args.csa )
             sanity_check_two_list(sim_resid, residCSA, "resid from fitted_Ct -versus- as defined in CSA file ")
             if np.fabs(CSAvaluesArray[0]) > 1.0:
                 print( "= = = NOTE: the first value is > 1.0, so assume a necessary conversion to ppm." )
                 CSAvaluesArray *= 1e-6
+            objExpts.initialise_CSA_array(CSAvaluesArray)
         elif bIsNumeric:
             print( "= = = Using user-input CSA value: %g" % tmp )
-            relax_obj.gX.csa=tmp
             if np.fabs(tmp)>1.0:
                 print( "= = = NOTE: this value is > 1.0, so assume a necessary conversion to ppm." )
-                relax_obj.gX.csa*=1e-6
-            CSAvaluesArray = np.repeat( relax_obj.gX.csa, num_vecs )
+                tmp*=1e-6
+            CSAvaluesArray = np.repeat( tmp, objExpts.localCtModels.nModels )
+            objExpts.initialise_CSA_array(CSAvaluesArray)
         else:
             print( "= = = ERROR at parsing the --csa argument!", file=sys.stderr )
             sys.exit(1)
-    
-    objExpts.set_CSA_values(CSAvaluesArray)
-    
+
+    objExpts.parse_optimisation_params(['Diso','Daniso'])
+    objExpts.perform_optimisation()
+    sys.exit()
+            
+            
     # = = = evaluation section. Determine what is to be done wioth the data.
     listOpt = args.opt
     
     if listOpt is None:
         # = = = No optimisation. Simply print the direct prediction for each experiment.
-        objExpts.eval_all()
+        objExpts.eval_all(bVerbose=True)
         for sp in objExpts.spinrelax:
             outputFile="%s_%sT_%s.dat" % (args.out_pref, str(round(sp.get_magnetic_field())), sp.get_name())
             fp=open(outputFile,'w')
+            sp.print_metadata(style='xmgrace', fp=fp)
             sp.print_values(style='xmgrace', fp=fp)
-            fp.close()        
-        for i, sp in enumerate(objExpts.spinrelax):
-            print( sp.calc_chisq(objExpts.data[i]['y'],objExpts.data[i]['dy'], objExpts.mapModelNames[i] ))
+            fp.close()
+        #for i, sp in enumerate(objExpts.spinrelax):
+        #    print( sp.name, 'chisq comparison:' )
+        #    print( sp.calc_chisq(objExpts.data[i]['y'],objExpts.data[i]['dy'], objExpts.mapModelNames[i] ))
         sys.exit()
     
-    
+    # = = =
+
     # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
     param_names=("Diso", "zeta", "CSA", "chi")
     param_scaling=( 1.0, zeta, 1.0e6, 1.0 )
@@ -547,97 +506,6 @@ if __name__ == '__main__':
                   values=np.multiply(param_scaling, (Diso, 1.0, relax_obj.gX.csa, 0.0)),
                   units=param_units,
                   bFit=(False, False, False, False) )
-    else:
-        # = = = Section 2. Minimisation is applied against experimental data.
-        print( "= = = Reading Experimental relaxation parameter files" )
-        # New code. Take into account holes in data and multiple fields
-        # Where holes are, put False in the Truth Matrix
-        #exp_Bfields, exp_resid, expblock, truthblock = read_exp_relaxations(args.expfn)
-        # Old code below:
-        exp_resid, expblock = gs.load_xys(expt_data_file)
-        nres = len(exp_resid)
-        ny   = expblock.shape[1]
-        rho = np.zeros(nres, dtype=np.float32)
-        if ny == 6:
-            expblock = expblock.reshape( (nres,3,2) )
-            # = = = Check if there are entries with zero uncertainty, which may break the algorithm.
-            if ( np.any(expblock[...,1]==0) ):
-                print("= = = WARNING: Experimental data %s contains entries with 0.00 uncertainty!" % expt_data_file, file=sys.stderr)
-                if relax_obj.rotdifModel.name=='rigid_sphere':
-                    print("= = = ERROR: Experimental data with partial zero uncertainties will break isotropic rotational diffusion optimisations.\n"
-                          "      Please clean up your data with an appropriate uncertainty estimator.")
-                    sys.exit(1)
-        elif ny != 3:
-            print( "= = = ERROR: The column format of the experimental relaxation file is not recognised!", file=sys.stderr )
-            sys.exit(1)
-
-        if ny == 3:
-            expblock = expblock.T
-        elif ny == 6:
-            expblock = np.swapaxes(expblock,0,1)
-        # = = Desired dimensions:
-        # When no errors are given expblock is (nres, R1/R2/NOE)
-        # When errors are given, 3 dimensions: (nres, R1/R2/NOE, data/error)
-
-        # = = = Sanity Check
-        # Compare the two resid_lists.
-        sim_ind=None
-        if not gm.list_identical( sim_resid, exp_resid ):
-            print( "= = WARNING: The resids between the simulation and experiment are not the same!", file=sys.stderr )
-            print( "...removing elements from the vector files that do not match.", file=sys.stderr )
-            
-            if not vecXH is None:
-                print( "Debug (before):", len(S2_list), vecXH.shape, expblock.shape )
-            else:
-                print( "Debug (before):", len(S2_list), None, expblock.shape )
-            print( "(resid - sim)", sim_resid )
-            print( "(resid - exp)", exp_resid )
-            shared_resid = np.sort( list( set(sim_resid) & set(exp_resid) ) )
-            print( "(resid - shared)", shared_resid )
-            fnum_vecs = len( shared_resid )
-            if fnum_vecs == 0:
-                print( "= = ERROR: there is no overlap between experimental and simulation residue indices!", file=sys.stderr )
-                sys.exit(1)
-            fnum_vecs = len( shared_resid )
-            sim_ind = np.array( [ (np.where(sim_resid==x))[0][0] for x in shared_resid ] )
-            fsim_resid   = [ sim_resid[x] for x in sim_ind ]
-            fS2_list     = [ S2_list[x] for x in sim_ind ]
-            fconsts_list = [ consts_list[x] for x in sim_ind ]
-            ftaus_list   = [ taus_list[x] for x in sim_ind ]
-            if not vecXH is None:
-                fvecXH = vecXH.take(sim_ind, axis=0)
-            else:
-                fvecXH = None
-            fCSAs        = CSAvaluesArray.take(sim_ind)
-            if not vecXHweights is None:
-                fvecXHweights = vecXHweights.take(sim_ind, axis=0)
-            else:
-                fvecXHweights = None
-            exp_ind = np.array( [ (np.where(exp_resid==x))[0][0] for x in shared_resid ] )
-            expblock = np.take(expblock, exp_ind, axis=1)
-
-            if not vecXH is None:
-                print( "Debug (after):", len(fS2_list), fvecXH.shape, expblock.shape )
-            else:
-                print( "Debug (after):", len(S2_list), None, expblock.shape )
-            print( "(resid)", sim_resid )
-        else:
-            fnum_vecs    = num_vecs
-            fsim_resid   = sim_resid
-            fS2_list     = S2_list
-            fconsts_list = consts_list
-            ftaus_list   = taus_list
-            fvecXH       = vecXH
-            fvecXHweights = vecXHweights
-            fCSAs        = CSAvaluesArray
-
-        # = = = Do global scan of Diso = = =
-        bDoGlobalScan = False
-        if bDoGlobalScan:
-            Diso_init = do_global_scan_Diso( Diso, step=1.05, smin=-10, smax=10, \
-                args=(relax_obj, fnum_vecs, fS2_list, fconsts_list, ftaus_list, fvecXH, fvecXHweights, CSAvaluesArray, expblock) )
-        else:
-            Diso_init = Diso
 
         # = = DEBUG = =
         #print(relax_obj.rotdifModel.name)

@@ -19,49 +19,109 @@ For early CSA discussions, see
 - Fushman, Tjandra, and Cowburn. J. Am. Chem. Soc., 1998
 """
 
-
 class gyromag:
     """
     This is the base handler for the gyromagnetic properties of a set of nuclei.
     Here, the time units are set to seconds by default and fixed.
     """
-    def __init__(self, isotope):
-        self.name=isotope
-        self.csa=0.0
+    def __init__(self, isotope, csa=None):
+        self.num=1
+        self.isotope=isotope
         self.timeUnit='s'
         self.time_fact=_return_time_fact(self.timeUnit)
-        self.set_gamma(self.name)
+        self.set_gamma(self.isotope)
+        if csa is None:
+            self.reset_csa(isotope)
+        else:
+            self.csa=csa
 
+    def reset_csa(self, name):
+        if  name=='15N':
+            # Large variation possible. See Fushman, Tjandra, and Cowburn, 1998.
+            # Also use more commonly accepted value.            
+            self.set_csa(-170e-6)
+        elif name=='13C':
+            # Good average unknown
+            self.set_csa(-130e-6)
+        else:
+            self.set_csa(0.0)
+            
     def set_gamma(self, name):
         """
         Sets the gamma value based on the gyromag's isotope and time unit definition.
         Gamma is in units of rad s^-1 T^-1 .
         """
         if name=='1H':
-            self.gamma=267.513e6*self.time_fact
             #In standard freq: 42.576e6
+            self.gamma=267.513e6*self.time_fact
         elif name=='13C':
             self.gamma=67.262e6*self.time_fact
-            # Good average unknown
-            self.csa=-130e-6
         elif name=='15N':
             self.gamma=-27.116e6*self.time_fact
-            # Large variation possible. See Fushman, Tjandra, and Cowburn, 1998.
-            # Also use more commonly accepted value.
-            self.csa=-170e-6
         elif name=='17O':
             self.gamma=-36.264e6*self.time_fact
         elif name=='19F':
             self.gamma=251.662e6*self.time_fact
         elif name=='31P':
             self.gamma=108.291e6*self.time_fact
-
+                
+    def set_csa(self, csa, i=None):
+        self.csa = csa
+        
+    def get_csa(self, i=None):
+        return self.csa
+        
     def set_time_unit(self, tu):
         old = self.time_fact
         self.time_fact = _return_time_fact(tu)
         mult = self.time_fact/old
         self.gamma *= mult
 
+class gyromagMultiCSA(gyromag):
+    def __init__(self, isotope, n, csa=None):
+        self.num=n
+        self.isotope=isotope
+        self.timeUnit='s'
+        self.time_fact=_return_time_fact(self.timeUnit)
+        self.set_gamma(self.isotope)
+        if csa is None:
+            self.reset_csa(isotope)
+        else:
+            self.set_csa(csa)
+
+    def reset_csa(self, name):
+        if  name=='15N':
+            # Large variation possible. See Fushman, Tjandra, and Cowburn, 1998.
+            # Also use more commonly accepted value.            
+            self.set_csa(np.repeat(-170e-6,self.num))
+        elif name=='13C':
+            # Good average unknown
+            self.set_csa(np.repeat(-130e-6,self.num))
+        else:
+            self.set_csa(np.repeat(0.0,self.num))
+            
+    def set_csa(self, csa, i=None):
+        """
+        Sets whole array if no index argument is given. Does a sanity check against its own number of nuclei.
+        """
+        if i is None:
+            if self.num == len(csa):
+                self.csa = np.array(csa)
+            else:
+                print("= = ERROR: attempting to set CSA array in gyromagMultiCSA, but the lengths to not match!")
+                sys.exit(1)
+        else:
+            self.csa[i] = csa
+        
+    def get_csa(self, i=None):
+        """
+        Returns whole array if no index argument is given.
+        """        
+        if i is None:
+            return self.csa
+        else:
+            return self.csa[i]
+        
 # = = = omega = = =
 def calc_omega_names(nA, nB):
     out=OrderedDict()
@@ -76,8 +136,8 @@ class angularFrequencies:
     """
     This class handles the angular frequencies and their host nuclei.
     It acts to provide the relevant J(omega) frequencies and nuclei properties to downstream relaxation computations.
-    Host objects:
-    self.gA 
+    Hosts objects:
+    self.gA for heavy nuclei, self.gB for 1H for default.
     """
     # = = = Static class variables = = =
     # Default indexing to create the five NMR-component frequencies
@@ -115,13 +175,14 @@ class angularFrequencies:
 
     def report(self):
         print("Field: %g T" % self.get_magnetic_field() )
-        print("NucleiA: %s @ %s rad^-1s^-1" % ( self.gA.name,self.gA.gamma ) )
-        print("NucleiB: %s @ %s rad^-1s^-1" % ( self.gB.name,self.gB.gamma ) )
+        print("NucleiA: %s @ %s rad^-1s^-1" % ( self.gA.isotope,self.gA.gamma ) )
+        print("NucleiB: %s @ %s rad^-1s^-1" % ( self.gB.isotope,self.gB.gamma ) )
         print("Bond length: %g %s" % (self.rAB, self.distUnit) )
         print("Time units: %s (%g)" % (self.timeUnit, self.time_fact) )
         print("Distance units: %s (%g)" % (self.distUnit, self.dist_fact) )
         print("Angular frequencies names: %s" % (str([k for k in self.omegaNames.keys()])) ) 
         print("Angular frequencies (rad %s^-1 T^-1): %s" % (self.timeUnit, str(self.omega)) ) 
+        
     def set_magnetic_field(self, inp, unit ):
         if unit == 'Hz':
             self.B0 = 2.0*np.pi*inp / 267.513e6        
@@ -132,8 +193,15 @@ class angularFrequencies:
         else:
             _BAIL( "set_magnetic_field", "incorrect field units given ( %s )" % unit )
         
-    def get_magnetic_field(self):
-        return self.B0
+    def get_magnetic_field(self, unit='T'):
+        if unit == 'T':
+            return self.B0
+        elif unit == 'MHz':
+            return self.B0*267.513/(2.0*np.pi)
+        elif unit == 'Hz':
+            return self.B0*267.513e6/(2.0*np.pi)
+        else:
+            _BAIL( "set_magnetic_field", "incorrect field units given ( %s )" % unit )        
         
     def set_time_unit(self, tu):
         old=self.time_fact
@@ -151,7 +219,7 @@ class angularFrequencies:
         return self.omega        
 
     def get_nuclei_names(self):
-        return [ self.gA.name, self.gB.name ]
+        return [ self.gA.isotope, self.gB.isotope ]
         
     def get_factor_DD(self):
         """
@@ -169,14 +237,902 @@ class angularFrequencies:
         """
         return 0.10 * 1.1121216813552401e-82*self.gA.gamma**2.0*self.gB.gamma**2.0 *(self.rAB*self.dist_fact)**-6.0
 
-    def get_factor_CSA(self, CSAvalue=None):
-        if CSAvalue is None:
-            return 2.0/15.0 * self.gA.csa**2.0 * ( self.gA.gamma * self.B0 )**2
-        else:
-            return 2.0/15.0 * CSAvalue**2.0 * ( self.gA.gamma * self.B0 )**2
+    def get_factor_CSA(self,i=None):
+        # = = = Some passing arguments in case CSA is an array and we want only one value.
+        return 2.0/15.0 * self.gA.get_csa(i)**2.0 * ( self.gA.gamma * self.B0 )**2        
+
+    def initialise_CSA_array(self, numCSAs, CSAvalues=None):
+        self.gA = gyromagMultiCSA( self.gA.isotope, numCSAs, CSAvalues)
+    
+    def update_CSA_array(self, csa, ind=None):
+        self.gA.set_csa(self, csa, ind)
     
 # = = = = Global rotations. = = =
+    
+class globalRotationalDiffusion_Base:
+    def __init__(self):
+        self.name  = 'base'        
+        self.D   = None
+        # = = = Storing coefficients for later reference during computation, since they do not update regularly.
+        self.D_J = None
+        self.A_J = None
+        self.bVecs      = False
+        self.axisAvg    = None
+        self.vecNames   = None
+        self.vecXH      = None
+        self.vecWeights = None
+        
+    def report(self):
+        print( "Type:", self.name )
+        print( "Diffusion tensor components:", self.D )
+        if self.bVecs:
+            print("Principal-axis frame vectors names:", self.vecNames.shape )
+            print("Principal-axis frame vectors shape:", self.vecXH.shape )
+            if self.vecWeights is None:
+                print("Principal-axis frame vectors has no weights.")
+            else:
+                print("Principal-axis frame vectors weights shape:", self.vecWeights.shape )
+        else:                
+            print("No principal-axis frame vectors loaded.")   
 
+    def import_frame_vectors_npz(self, fileName):
+        """
+        Sets up vec (numReplicates, numVectors, 3) and weights (numReplicates, numVectors)
+        This eases downstream broadcasting in spin relaxation computations.
+        """
+        # = = = Treat as a numpy binary file.
+        obj = np.load(fileName, allow_pickle=True )
+        # = = = Determine data type
+        names = obj['names']
+        if obj['bHistogram']:
+            if obj['dataType'] != 'LambertCylindrical':
+                print( "= = = Histogram projection not supported! %s" % obj['dataType'], file=sys.stderr )
+                sys.exit(1)
+            vecs, weights = convert_LambertCylindricalHist_to_vecs(obj['data'], obj['edges'])
+        else:
+            if obj['dataType'] != 'PhiTheta':
+                print( "= = = Numpy binary datatype not supported! %s" % obj['dataType'], file=sys.stderr )
+                sys.exit(1)
+            # = = = Pass phi and theta directly to rtp_to_xyz
+            vecs = gm.rtp_to_xyz( obj['data'], vaxis=-1, bUnit=True )
+        self.bVecs      = True
+        self.vecNames   = names
+        
+        self.vecXH      = np.swapaxes(vecs,0,1)
+        self.vecWeights = np.swapaxes(weights,0,1)
+        self.axisAvg = 0
+        print("Debug import_frame_vectors_npz:", self.vecXH.shape, self.vecWeights.shape )
+        
+    def import_frame_vectors_pdb(self, pdbFile, trjFile=None, HSelTxt='name H', XSelText='name N and not resname PRO'):
+        """
+        Altenative functionality to define single vectors from a reference PDB file,
+        which should already be in the principal-axis frame.
+        Requires mdtraj
+        """
+        print( "= = = Using vectors as found directly in the coordinate files, via MDTraj module." )
+        print( "= = = NOTE: no fitting is conducted." )        
+        import mdtraj as md
+        import transforms3d_supplement as qs
+        
+        if not trjFile is None:
+            mol = md.load(trjFile, top=pdbFile)
+            print( "= = = PDB file %s and trajectory file %s loaded." % (pdbFile, trjFile) )
+        else:
+            mol = md.load(pdbFile)
+            print( "= = = PDB file %s loaded." % pdbFile )
+
+        indH, indX, resXH = confirm_mdtraj_seltxt(mol, HSelTxt, XSelText)
+        # Extract submatrix of vector trajectory
+        vecs = np.take(mol.xyz, indH, axis=1) - np.take(mol.xyz, indX, axis=1)
+        vecs = qs.vecnorm_NDarray(vecs, axis=2)
+
+        # = = = Check shape and reform the number of dimensions for downstream work.
+        #       This is based on the mdtraj output.
+        if vecs.shape[0] == 1:
+            # Shape (num, 3)
+            vecs = vecs[0]
+            self.axisAvg = None
+        else:
+            #shape (num, frames, 3)
+            vecs = np.swapaxes(vecs,0,1)
+            self.axisAvg = 0
+        self.bVecs      = True
+        self.vecNames   = resXH
+        self.vecXH      = vecs
+        self.vecWeights = None
+        print("Debug import_frame_vectors_pdb:", self.vecXH.shape )
+        
+    def import_frame_vectors(self, fileName):
+        """
+        Reads the frame vectors distribution, however that is formatted.
+        Returns the vectors, and maybe weights whose dimensions are (nResidue, nSamples, 3).
+        Currently supports only phi-theta formats of vector definitions.
+        For straight xmgrace data files, this corresponds to the number of plots, then the data-points in each plot.
+        """
+        weights = None
+        if fileName.endswith('.npz'):
+            self.import_frame_vectors_npz(fileName)
+            return
+        elif fileName.endswith('.pdb'):
+            # = = = Attempt naive PDB loader with default arguments.
+            self.import_frame_vectors_pdb(fileName)
+            return
+        else:
+            # = = = Assuming a generic XYZ-type file structure.
+            names, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
+            vecs = gm.rtp_to_xyz( np.stack( (dist_phis,dist_thetas), axis=-1), vaxis=-1, bUnit=True )
+            print( vecs.shape )
+            sys.exit()
+        if not weights is None:
+            print( "    ...converted input phi_theta data to vecXH / weights, whose shapes are:", vecs.shape, weights.shape )
+        else:
+            print( "    ...converted input phi_theta data to vecXH, whose shape is:", vecs.shape )
+        self.axisAvg    = 0
+        self.bVecs      = True
+        self.vecNames   = names
+        self.vecXH      = vecs
+        self.vecWeights = weights
+        print("Debug import_frame_vectors_generic:", self.vecXH.shape, self.vecWeights.shape )        
+        print("ERROR: THe generic dfunctionality has noe been tested. Aborting for safety.")
+        sys.exit()
+        
+    def get_names(self):
+        # Temporary fix as names in the npz file are ints and not string
+        return [ str(x) for x in self.vecNames]
+    #return resIDs, vecs, weights
+            
+class globalRotationalDiffusion_Isotropic(globalRotationalDiffusion_Base):
+    """
+    Subcopy for isotropic. Does not use the D_J and A_J coefficients since they are trivial.
+    """
+    def __init__(self, D=None, tau=None):
+        if D is None and tau is None:
+            print("= = = ERROR: global rotdif models must be initialised with some D or tau argeument!", file=fp)
+            return None
+        globalRotationalDiffusion_Base.__init__(self)
+        self.name='isotropic'
+        if not D is None:
+            self.D=D
+        else:
+            self.D=1.0/(6.0*tau)
+    
+    def set_Diso(self,Diso):
+        self.D=Diso
+        self.D_J=self.D        
+    def get_Diso(self):
+        return self.D
+        
+    def update_A_coefficients(self):
+        return
+    def get_A_coefficients(self):
+        # A_coefficients_symmtop(v, bProlate=(self.D[0]>self.D[1]))
+        return 1.0
+
+    def update_D_coefficients(self):
+        return
+    def get_D_coefficients(self):
+        return self.D
+    
+    def transform_D(self):
+        return self.D   
+    
+    def calc_Jomega_one(self, omega, CtModel, ind=None):
+        """
+        This calculates the J value for combining an isotropic global tumbling with
+        a fitted internal autocorrelation C(t), where
+        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
+        thus this allows fits to multiple time constants in C(t).
+        """
+        #def J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
+        tauGlob=1.0/(6.0*self.D)
+        k = 1.0/tauGlob+1.0/CtModel.tau
+        Jmat = CtModel.zeta*CtModel.S2*tauGlob/(1.0+(omega*tauGlob)**2.0)
+        for i in range(CtModel.nComps):
+            Jmat += CtModel.zeta*CtModel.C[i]*k[i]/(k[i]**2.0+omega**2.0)
+        return Jmat
+
+    def calc_Jomega(self, omega, Autocorrs):
+        """
+        This calculates the J value for combining an isotropic global tumbling with
+        a fitted internal autocorrelation C(t), where
+        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
+        thus this allows fits to multiple time constants in C(t).
+        """
+        #def J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
+        tauGlob=1.0/(6.0*self.D)
+        Jmat = np.zeros( (Autocorrs.nModels,len(omega) ) )
+        # Expect only 2 axes for isotropic diffusion, but just in case...
+        for i, model in enumerate( Autocorrs.model.values() ):
+            Jmat[...,i,:]=self.calc_Jomega_one(omega, model )
+        return Jmat
+    
+    def calc_Jomega_rigid(self, omega):
+        return 6.0*self.D/( (6.0*self.D)**2.0 + np.power(omega,2.0) )
+
+class globalRotationalDiffusion_Axisymmetric(globalRotationalDiffusion_Base):
+    """
+    Subcopy for axi-symmetric.
+    Internal storage will be in terms of D_iso and D_aniso, rather than D_parallel, D_perpendicular
+    If the latter is given, then bConvert should be set to True during initialisation.
+    """
+    def __init__(self, D=None, bConvert=False, tau=None, aniso=None):
+        if D is None and (tau is None or aniso is None):
+            print("= = = ERROR: global rotdif models must be initialised with some D or tau/aniso argeument!", file=sys.stderr)
+            return None
+        globalRotationalDiffusion_Base.__init__(self)
+        self.name='axisymmetric'
+        if not D is None:
+            if bConvert:
+                self.D=np.array([(2.0*D[1]+D[0])/3.0, D[0]/D[1]], dtype=float)
+            else:
+                self.D=np.array(D, dtype=float)
+            #Dperp = 3.*Diso/(2+Daniso)
+            #Dpar  = Daniso*Dperp
+            # Convention: Diso, Dani --> Dpar, Dperp
+        else:
+            self.D=np.array( [1.0/(6.0*tau),aniso], dtype=float)
+        if self.D[1]>1:
+            self.bProlate=True
+        else:
+            self.bProlate=False
+    
+    def set_Diso(self, Diso):
+        self.D[0]=Diso
+        self.update_D_coefficients()
+    def set_Daniso(self, Daniso):
+        self.D[1]=Daniso
+        self.update_D_coefficients()
+        
+    def get_Diso(self):
+        return self.D[0] 
+    def get_Daniso(self):
+        return self.D[1]
+        
+
+    def update_A_coefficients(self):
+        """
+        Computes the 3 axisymmetric A-coefficients associated with orientation of the vector w.r.t. to the D_rot ellipsoid.
+        v can be many dimensions, as long as the X/Y/Z cartesian dimensions is the last. Two examples:
+        When a vector distribution is given originally, this should setup the shape (nReplicates, nVecs, 3).
+        When a single vector is given originally, this return (nVecs, 3).
+        This is designed to handle many vectors at once.
+        Also note: The unique axis changes when Daniso > 1 and when Daniso < 1 so as to preserve Dx<Dy<Dz formalism.
+        This is governed by bProlate, which changes the unique axis to x when tumbling is oblate.
+        """
+        if self.bProlate:
+            # Use z-dim.
+            z2=np.square(self.vecXH.take(-1, axis=-1))
+        else:
+            # Use x-dim.
+            z2=np.square(self.vecXH.take( 0, axis=-1))
+        onemz2=1-z2
+        A0 = np.multiply( 3.0, np.multiply(z2,onemz2))
+        A1 = np.multiply(0.75, np.square(onemz2))
+        A2 = np.multiply(0.25, np.square(np.multiply(3.0,z2)-1.0))
+        self.A_J = np.stack((A0,A1,A2),axis=-1)
+        # = = = This is for broadcasting rules down the track
+        #if len(self.A_J.shape)==3:
+        #    self.A_J=np.swapaxes(self.A_J, 0, 1)
+    
+    def get_A_coefficients(self, ind=None):
+        if ind is None:
+            return self.A_J
+        else:
+            # Take the second last axis, as this is either of shape (nVecs, 3), or (nReplicates, nVecs, 3).
+            return np.take(self.A_J, ind, axis=-2)
+    
+    def transform_D(self):
+        """
+        Returns pair of floats (Dpar, Dperp) from the internal Diso, aniso representation.
+        """
+        tmp=3.0*self.D[0]/(2.0+self.D[1])
+        return self.D[1]*tmp, tmp
+    
+    def update_D_coefficients(self):
+        """
+        Computes the 3 axisymmetric D-coefficients associated with the D_rot ellipsoid.
+        """
+        self.D_J = D_coefficients_symmtop( self.transform_D() )
+        #return np.array( [5*Dperp+Dpar, 2*Dperp+4*Dpar, 6*Dperp] )
+        
+    def get_D_coefficients(self):
+        return self.D_J
+        
+    def calc_Jomega_one(self, omega, CtModel, ind):
+        D_J=self.get_D_coefficients() ; A_J=self.get_A_coefficients(ind)
+        Jmat = _do_Jsum(omega, CtModel.zeta*CtModel.S2*A_J, D_J)
+        for j in range(CtModel.nComps):
+            Jmat += _do_Jsum(omega, CtModel.zeta*CtModel.C[j]*A_J, D_J+1./CtModel.tau[j])
+        return Jmat
+
+    def calc_Jomega_byName(self, omega, CtModel):
+        ind = self.get_names().index(CtModel.name)
+        return calc_Jomega_one(omega, CtModel, ind)
+    
+    def calc_Jomega(self, omega, Autocorrs, bSearch=False):
+        #def J_combine_symmtop_exp_decayN(om, v, Dpar, Dperp, S2, consts, taus):
+        """
+        Calculates the J value for combining a symmetric-top anisotropic tumbling with
+        a fitted internal autocorrelation C(t), where
+        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
+        thus this allows fits to multiple time constants in C(t).
+        This function supports giving multiple vectors at once, of the form v.shape=(L,M,N,...,3)
+        
+        Assumes that the vectors list in A coefficients is identical to the CtModels list.
+        
+        If this cannot be assumed, e.g. where the CtModels are a subset of the vectors, give bSearch as an argument.
+        """
+        #v can be given as an array, with the X/Y/Z cartesian axisin the last position.
+        if self.D_J is None:
+            self.update_D_coefficients()
+        if self.A_J is None:
+            self.update_A_coefficients()
+        #D_J=self.get_D_coefficients() ; A_J=self.get_A_coefficients()
+        if bSearch:
+            sh = list(self.vecXH.shape) ; sh[0] = Autocorrs.nModels ; sh[-1] = len(omega)
+            Jmat = np.zeros( sh )
+            for model in Autocorrs.model.values():
+                Jmat[...,i,:] = self.calc_Jomega_byName(omega, model)
+        else:
+            sh = list(self.vecXH.shape) ; sh[-1] = len(omega)
+            Jmat = np.zeros( sh )
+            # This is the second last axis
+            for i, model in enumerate( Autocorrs.model.values() ):
+                Jmat[...,i,:] = self.calc_Jomega_one(omega, model, i)
+                #Jmat[i] = _do_Jsum(omega, model.zeta*model.S2*A_J[i], D_J)
+                #for j in range(model.nComps):
+                #    Jmat[i] += _do_Jsum(omega, model.zeta*model.C[j]*A_J[i], D_J+1./model.tau[j])
+        
+        return Jmat
+        #return _do_Jsum( S2*A_J, D_J) + np.sum([ _do_Jsum(CtModel.C[i]*A_J, D_J+1./CtModel.tau[i]) for i in range(CtModel.nComps)) ])
+
+    def calc_Jomega_rigid(self, omega):
+        D_J=self.get_D_coefficients()
+        A_J=self.get_A_coefficients()
+        return A_J*D_J/(np.power(D_J,2.0)+np.power(omega,2.0))
+
+# = = = spin relaxation = = =
+
+class spinRelaxationBase:
+    """
+    This meta class handles properties specific to a single NMR experiment, e.g. R1, R2, R1rho, hetNOE.
+    Invoking obj.eval(frequencies) should return the computations.
+    It is not aware of, per se, of the exact magnetic fields and other properties.
+    """    
+    def __init__(self, name, timeUnit='ps', angFreq=None, globalRotDif=None, localCtModels=None):
+        self.name=name
+        self.values = None
+        self.errors = None
+        self.timeUnit = timeUnit
+        self.time_fact = _return_time_fact(self.timeUnit)
+        self.angFreq   = angFreq       
+        self.globalRotDif  = globalRotDif
+        self.localCtModels  = localCtModels
+        self.check_consistency()
+        
+    def check_consistency(self):
+        if (not self.angFreq is None) and (not isinstance(self.angFreq, angularFrequencies)):
+            print("= = = ERROR in initialisation, angular freq is not of the correct class!", file=sys.stderr)
+            sys.exit(1)
+        if (not self.globalRotDif is None) and (not isinstance(self.globalRotDif, globalRotationalDiffusion_Base)):
+            print("= = = ERROR in initialisation, global rotdif model is not of the correct class!", file=sys.stderr)
+            sys.exit(1)
+        if (not self.localCtModels is None) and (not isinstance(self.localCtModels, fitCt.autoCorrelations)):
+            print("= = = ERROR in initialisation, global rotdif model is not of the correct class!", file=sys.stderr)
+            sys.exit(1)
+
+    def set_angular_frequency(self, wObj):
+        self.angFreq  = wObj
+        
+    def set_global_rotdif(self, DObj):
+        self.globalRotDif  = DObj
+    
+    def set_local_Ctmodel(self, CtModel):
+        self.localCtModels  = None
+    
+    def set_magnetic_field(self, fieldStrength, fieldUnit ):
+        self.angFreq.set_magnetic_field( fieldStrength, fieldUnit )
+    
+    def get_magnetic_field(self):
+        return self.angFreq.get_magnetic_field()
+
+    def get_name(self):
+        return self.name
+    
+    def get_description(self):
+        return "%s Experiment at %sT over %i vectors" % (self.get_name(), self.get_magnetic_field(), self.localCtModels.nModels)
+
+    #def calc_Jomega_one(self, ind):
+    #    return self.globalRotDif.calc_Jomega_one(self.angFreq.omega, self.localCtModels.model[i], ind )
+    
+    def calc_Jomega(self, ind=None):
+        if ind is None:
+            return self.globalRotDif.calc_Jomega(self.angFreq.omega, self.localCtModels )
+        else:
+            return self.globalRotDif.calc_Jomega_one(self.angFreq.omega, self.localCtModels.model[ind], ind )
+
+    def report(self):
+        print("Name:", self.name)
+        if not self.angFreq is None:
+            print("Angular frequency information...")
+            self.angFreq.report()
+        else:
+            print("No angular frequency information...")
+            
+        if not self.globalRotDif is None:
+            print("Global tumbling information...")
+            self.globalRotDif.report()
+        else:
+            print("No global tumbling information.")
+            
+        if not self.localCtModels is None:
+            print("Local C(t)-model information...")
+            self.localCtModels.report()
+        else:
+            print("No local C(t)-model information.")
+    
+    def func(self, f_DD, f_CSA, J):
+        """
+        Inner function that defines the relationship between experimental observable and J(omega).
+        """
+        return None
+    
+    def eval(self, CSAvalue=None):
+        """
+        The core conversion step from J(omega) to the experimental observable.
+        The dimensions of array J implies whether any averaging is done, where:
+          1 - Angular frequencies omega is the only dimension involved, of 5 frequencies.
+          2 - ( names, omega ) for the isotropic multiple peak computation.
+          3 - ( names, vectors, omega ) for the axisymmetric multiple peak computation. Averaging is done here,
+              as it nominally represents the contribution of different conformers that share similar enough chemical environments
+              to be considered in the same resonance peak.
+        
+        The base class has no evaluation step. This is replaced in each subclass.
+        """
+        print("ERROR: spinRelaxationBase.eval() is not meant to be invoked.", file=sys.stderr)
+        return None
+    
+    def set_zeta(self, zeta):
+        self.localCtModels.set_zeta(zeta)
+            
+    def get_zeta(self):
+        return self.localCtModels.get_zeta()
+
+    def update_values(self, values, errors=None, ind=None):
+        if ind is None:
+            self.values = values
+            if not errors is None:
+                self.errors = errors
+        else:
+            self.values[i] = values
+            if not errors is None:
+                self.errors[i] = errors
+            
+    def check_and_calculate_average(self, arr, ind=None):
+        nDim=len(arr.shape)
+        e = None
+        if self.globalRotDif.axisAvg is None:
+            return arr, e
+        elif ind is None:
+            v = np.average(arr, axis=0, weights=self.globalRotDif.vecWeights)
+            e = np.sqrt( np.average( (arr-v)**2.0, axis=0, weights=self.globalRotDif.vecWeights) )
+            return v, e
+        else:
+            v = np.average(arr, weights=self.globalRotDif.vecWeights[:,ind])
+            e = np.sqrt( np.average( (arr-v)**2.0, weights=self.globalRotDif.vecWeights[:,ind]) )
+            return v, e
+
+    def print_metadata(self, style='stdout', fp=sys.stdout):
+        if style=='stdout':
+            print("# %s" % self.get_description(), file=fp)
+        elif style=='xmgrace':
+            print('# Type %s' % self.name, file=fp)
+            print('# NucleiA %s' % (self.angFreq.gA.isotope), file=fp)
+            print('# NucleiB %s' % (self.angFreq.gB.isotope), file=fp)
+            f = self.angFreq.get_magnetic_field(unit='MHz')
+            print('# Frequency %g %s' % (f, 'MHz'), file=fp)
+
+    def print_values(self, style='stdout', fp=sys.stdout):
+        names = self.localCtModels.get_names()
+        if style=='stdout':
+            if self.errors is None:
+                for x,y in zip(names, self.values):
+                    print("%s %g" % (x,y), file=fp)
+            else:
+                for x,y,dy in zip(names, self.values, self.errors):
+                    print("%s %g %g" % (x,y,dy), file=fp)                
+        elif style=='xmgrace':
+
+            if self.errors is None:
+                for x,y in zip(names, self.values):
+                    print("%s %g" % (x,y), file=fp)
+            else:
+                for x,y,dy in zip(names, self.values, self.errors):
+                    print("%s %g %g" % (x,y,dy), file=fp)                
+            print("&", file=fp)
+            
+    def calc_chisq(self, Target, dTarget=None, indices=None):
+        v = self.values        
+        e = self.errors
+        if not indices is None:
+            v = v[indices]
+            if not e is None:
+                e = e[indices]
+
+        if (not e is None) and (not dTarget is None):
+            return np.mean(np.square(v-Target)/(np.square(dTarget)+np.square(e)))
+        elif e is None:
+            return np.mean(np.square(v-Target)/np.square(dTarget))
+        elif dTarget is None:
+            return np.mean(np.square(v-Target)/np.square(e))
+        else:
+            return np.mean(np.square(v-Target))
+
+class spinRelaxationR1(spinRelaxationBase):
+    """
+    Derivative class for R1
+    """
+    def func(self, f_DD, f_CSA, J):
+        # = = = Incorporate Broadcasting rule for multiCSA fitting. Assume all inputs are numpy arrays even if they are single scalars.
+        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
+        iOmX = 1 ; iOmH = 3
+        return self.time_fact*( f_DD*( J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] ) \
+                                + f_CSA*J[...,iOmX] )                       
+
+    def eval(self, ind=None, bVerbose=False):
+        """
+        The core conversion step from J(omega) to the experimental observable.
+        The dimensions of array J implies whether any averaging is done, where:
+          1 - Angular frequencies omega is the only dimension involved, of 5 frequencies.
+          2 - ( nPeaks/names, omega ) for the isotropic multiple peak computation.
+          3 - ( nPeaks/names, nReplicatesVectors, omega ) for the axisymmetric multiple peak computation.
+              Averaging over multiple vectors is done here and not at the A_J level,
+              as it nominally represents the contribution of different conformers that share similar enough chemical environments
+              to be considered in the same resonance peak.
+        
+        When an index is given, compute only the nth-index of axis-0, corresponding to a particular residue
+        """
+        J = self.calc_Jomega(ind) 
+        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
+        f_DD  = self.angFreq.get_factor_DD()
+        f_CSA = np.array(self.angFreq.get_factor_CSA(ind))
+        temp = self.func(f_DD, f_CSA, J)
+        if bVerbose:
+            print("debug R1 shapes pre-average: CSA %s , J %s , R1 %s " % (f_CSA.shape, J.shape, temp.shape))
+        v,e = self.check_and_calculate_average(temp, ind)
+        self.update_values(v,e, ind=ind)
+        return v
+        
+class spinRelaxationR2(spinRelaxationBase):
+    """
+    Derivative class for R2
+    """
+    def func(self, f_DD, f_CSA, J):
+        # = = = Incorporate Broadcasting rule for multiCSA fitting. Assume all inputs are numpy arrays even if they are single scalars.
+        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
+        iOmX = 1 ; iOmH = 3
+        return self.time_fact*( 0.5*f_DD*( 4*J[...,0] + J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] + 6*J[...,iOmH] ) \
+                                + 1.0/6.0*f_CSA*(4*J[...,0] + 3*J[...,iOmX]) )
+    
+    def eval(self, ind=None, bVerbose=False):
+        J = self.calc_Jomega(ind) 
+        f_DD  = self.angFreq.get_factor_DD()
+        f_CSA = np.array(self.angFreq.get_factor_CSA(ind))
+        temp = self.func(f_DD, f_CSA, J)
+        if bVerbose:
+            print("debug R2 shapes pre-average: CSA %s , J %s , R2 %s " % (f_CSA.shape, J.shape, temp.shape))
+        v,e = self.check_and_calculate_average(temp, ind)
+        self.update_values(v,e, ind=ind)
+        return v
+        
+class spinRelaxationNOE(spinRelaxationBase):
+    """
+    Derivative class for NOE
+    """
+    def _eval_R1(self, f_DD, f_CSA, J, ind=None):
+        iOmX = 1 ; iOmH = 3
+        temp = self.time_fact*( f_DD*( J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] ) \
+                                + f_CSA*J[...,iOmX] )    
+        v,e = self.check_and_calculate_average(temp, ind)
+        return v
+        
+    def func(self, f_DD, R1, J):
+        # = = = Incorporate Broadcasting rule for multiCSA fitting. Assume all inputs are numpy arrays even if they are single scalars.
+        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
+        iOmX = 1 ; iOmH = 3
+        return 1.0 + self.time_fact * self.angFreq.gB.gamma/(self.angFreq.gA.gamma*R1) * f_DD*(6*J[...,iOmH+iOmX] - J[...,iOmH-iOmX])
+    
+    def eval(self, ind=None, R1=None, bVerbose=False):
+        J = self.calc_Jomega(ind) 
+        f_DD  = self.angFreq.get_factor_DD()
+        if R1 is None:
+            if bVerbose:
+                print("DEBUG: ...calculating R1 within NOE.")
+            f_CSA = np.array(self.angFreq.get_factor_CSA(ind))
+            R1 = self._eval_R1(f_DD, f_CSA, J, ind)
+        temp = self.func(f_DD, R1, J)
+        if bVerbose:
+            print("debug NOE shapes pre-average: R1 %s , J %s , NOE %s " % (R1.shape, J.shape, temp.shape))
+        v,e = self.check_and_calculate_average(temp, ind)
+        self.update_values(v,e, ind=ind)
+        return v
+    
+class spinRelaxationExperiments:
+    """
+    This is the handler class to manage multiple independent experiments and link to its associated
+    computational components.
+    Shapes of arrays:
+    - self.data( nExperiments, [x,y,dy] )
+    """
+    #listDefinedTypes=['R1','R2','NOE']
+    
+    def __init__(self, globalRotDif=None, localCtModels=None):
+        self.num=0
+        self.spinrelax=[]
+        self.data=[]
+        self.globalRotDif=globalRotDif
+        self.localCtModels=localCtModels
+        self.mapModelNames=[]
+        self.bFitInitialised=False
+    
+    def add_experiment(self, fileName, bIgnoreErrors=False):
+        """
+        Add one experiment into the list.
+        Meta information such as the type of experiment and the nuclei involved are given in the header section.
+        NucleiA is the heavy nuclei
+        # Type NOE
+        # NucleiA   15N
+        # NucleiB    1H
+        # Frequency 600.133
+        1 0.5 0.05
+        2 0.9 0.03
+        ...
+        """
+        strType=None ; nucleiA=None; nucleiB=None; freq=None
+        names=[] ; values=[] ; errors=[]
+        for line in open(fileName,'r'):
+            if len(line) == 0:
+                continue
+            l = line.split()                
+            if line[0] == '#' or line[0] == '@':
+                # = = = HEADER section
+                if l[1] == 'Type':
+                    strType=l[2]
+                elif l[1] == 'NucleiA':
+                    nucleiA=l[2]
+                elif l[1] == 'NucleiB':
+                    nucleiB=l[2]
+                elif l[1] == 'Frequency':
+                    freq=float(l[2])
+                continue
+            # = = = Data section.
+            if bIgnoreErrors:
+                if len(1)==1:
+                    continue
+            elif len(l)==1 or len(l)>3:
+                print("ERROR in spinRelaxationExperiments.add_experiment(): data line does not obey expected conventions of 2 or 3 space-separated values!", l, file=sts.stderr)
+                sys.exit()                
+            names.append(l[0])
+            values.append(float(l[1]))
+            if len(l)>2:
+                errors.append(float(l[2]))
+            else:
+                errors.append(None)
+
+        # = = Sanity Checks
+        if strType is None or nucleiA is None or nucleiB is None or freq is None:
+            print("ERROR in spinRelaxationExperiments.add_experiment(): not all metadata has been read! "
+                  "Require: Type, NucleiA, NucleiB, Frequency", file=sys.stderr)
+            return
+        names=np.array(names)
+        values=np.array(values, dtype=float)
+        nErrors = np.sum([ x is None for x in errors])
+        if nErrors == len(errors):
+            errors = None
+        elif nErrors > 0:
+            print("ERROR in spinRelaxationExperiments.add_experiment(): either all entries must have uncertainties or none!", file=sys.stderr)
+            print("number of values with uncertainties: %i of %i" % (nErrors, len(errors)), file=sys.stderr)
+            sys.exit(1)
+        
+        wObj = angularFrequencies(nucleiA=nucleiA, nucleiB=nucleiB, fieldStrength=freq, fieldUnit='MHz')
+        if strType=='R1':
+            obj = spinRelaxationR1(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
+        elif strType=='R2':
+            obj = spinRelaxationR2(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
+        elif strType=='NOE':
+            obj = spinRelaxationNOE(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
+        self.num += 1
+        self.spinrelax.append(obj)
+        self.data.append(dict(names=names, y=values, dy=errors))
+    
+    def report(self):
+        print("QM vibration correction factor: %g" % self.get_zeta() )
+        if not self.globalRotDif is None:
+            self.globalRotDif.report()
+        else:
+            print("No global tumbling information loaded.")
+        if not self.localCtModels is None:
+            self.localCtModels.report()
+        else:
+            print("No local C(t) model information loaded.")
+        print("Number of experiments:", self.num )
+        for i in range(self.num):
+            print("...expt ", i)
+            self.spinrelax[i].report()
+            if not self.data[i]['dy'] is None:
+                print("Data array has %i names, %i values, %i errors" % (len(self.data[i]['names']),
+                                                                         len(self.data[i]['y']),
+                                                                         len(self.data[i]['dy'])))
+            else:
+                print("Data array has %i names, %i values," % (len(self.data[i]['names']),
+                                                               len(self.data[i]['y'])))
+
+    def map_experiment_peaknames_to_models(self):
+        """
+        This function sets up the numpy index-slicing for mapping experimental and computed peak identities.
+        It is planned to support names that have characters and not just integers representing resIDs.
+        The intended use is to run CtModels.model[mapnames[i]]
+        """
+        self.mapModelNames=[]
+        if self.localCtModels is None:
+            print("ERROR in spinRelaxationExperiments.map_peak_names: need a local C(t) model to map experimental peak names!", file=sys.stderr)
+            sys.exit(1)
+        namesCt   = self.localCtModels.get_names()
+        if not self.globalRotDif is None and self.globalRotDif.bVecs:
+            namesRotdif = self.globalRotDif.get_names()
+            if not gm.list_identical(namesCt,namesRotdif):
+                print("ERROR in spinRelaxationExperiments.map_peak_names: local C(t) model and global rotational-diffusion model do not have matching peak names!", file=sys.stderr)
+                print( "...local:",  namesCt, file=sys.stderr )
+                print( "...global:", namesRotdif, file=sys.stderr )
+                sys.exit(1)
+        
+        #= = = Use localCt as the authoritive version.
+        for i in range(self.num):
+            tmp = gm.list_get_map( namesCt, self.data[i]['names'], bValue=False )
+            self.mapModelNames.append(tmp)
+        
+    def initialise_CSA_array(self, CSAValues):
+        """
+        Searches through all experiments and 
+        """
+        for sp in self.spinrelax:
+            sp.angFreq.initialise_CSA_array(len(CSAValues), CSAValues)
+
+    def update_CSA_array(self, csa, ind=None):
+        for sp in self.spinrelax:
+            sp.angFreq.update_CSA_array(csa, ind=None)
+        
+    def eval_all(self, bVerbose=False):
+        R1Values=None
+        for sp in self.spinrelax:
+            if bVerbose:
+                print('...evaluating experiment %s at %g T.' % (sp.name,sp.angFreq.B0))
+            sp.eval(bVerbose=bVerbose)
+            #if sp.name=='R1':
+            #    R1Values = sp.eval()
+            #elif sp.name=='NOE':
+            #    sp.eval(R1=R1Values)
+            #else:
+            #    sp.eval()
+            #print(v.shape, v[0])
+
+    def print_all_values(self, style='stdout',fp=sys.stdout):
+        for sp in self.spinrelax:
+            sp.print_values(style,fp)
+            if style=='stdout':
+                print('', file=fp)
+
+    def set_global_Diso(self, Diso):
+        self.globalRotDif.set_Diso(Diso)
+    def get_global_Diso(self):
+        return self.globalRotDif.get_Diso()
+
+    def set_global_Daniso(self, Daniso):
+        self.globalRotDif.set_Daniso(Daniso)
+    def get_global_Daniso(self):
+        return self.globalRotDif.get_Daniso()
+
+    def set_global_zeta(self, zeta):
+        self.localCtModels.set_zeta(zeta)
+    def get_global_zeta(self):
+        return self.localCtModels.get_zeta()
+
+    def set_all_globalCSA(self, csa):
+        for sp in self.spinrelax:
+            sp.angFreq.gA.set_csa(csa)
+    def get_first_globalCSA(self):
+        return self.spinrelax[0].angFreq.gA.get_csa()
+            
+    # = = = = Optimisation related functions and classes.
+    listOptimisationVariables=['Diso','Daniso','CSA','zeta','resCSA']
+    
+    def parse_optimisation_params(self,listOpts):
+        self.bFitInitialised=False
+        self.listUpdateVariables=[]
+        self.listStepSizes=[]
+        self.listSetFunctions=[]
+        self.listGetFunctions=[]
+        for o in listOpts:
+            if o not in spinRelaxationExperiments.listOptimisationVariables:
+                _BAIL( "parse_optimisation_params",
+                        "Optimisation variable %s not found in list!\n"
+                        "Possibilities are: %s "% (o, spinRelaxationExperiments.listOptimisationVariables) )
+            if o == 'Diso':
+                self.listSetFunctions.append(self.set_global_Diso)
+                self.listGetFunctions.append(self.get_global_Diso)
+                self.listStepSizes.append(1e-5)
+            if o == 'Daniso':
+                self.listSetFunctions.append(self.set_global_Daniso)
+                self.listGetFunctions.append(self.get_global_Daniso)
+                self.listStepSizes.append(0.1)
+            elif o == 'zeta':
+                self.listSetFunctions.append(self.set_global_zeta)
+                self.listGetFunctions.append(self.get_global_zeta)
+                self.listStepSizes.append(0.1)
+            elif o == 'CSA':
+                self.listSetFunctions.append(self.set_all_globalCSA)
+                self.listGetFunctions.append(self.get_first_globalCSA)
+                self.listStepSizes.append(1e-5)
+            self.listUpdateVariables.append(o)
+        self.bFitInitialised=True
+        
+    def perform_optimisation(self):
+        if not self.bFitInitialised:
+            _BAIL("perform_fit","You must first run parse_optimisation_params to tell the script what to optimise.")
+        from scipy.optimize import fmin_powell      
+        fminOut = fmin_powell(optimisation_loop_inner_function,
+                              x0=self.optimisation_loop_get_globals(),
+                              direc=self.optimisation_loop_get_direc(),
+                              args=( self, '1' ),
+                              full_output=True)
+        #out = fmin_powell(optfunc_R1R2NOE_Diso, x0=DisoOpt, direc=[0.1*DisoOpt], args=(...), full_output=True )       
+        print( "= = = Optimisation complete over variables: %s" % self.optimisation_loop_get_param_names() )
+        print( fminOut )
+        
+    def optimisation_loop_get_param_names(self):
+        return self.listUpdateVariables
+    
+    def optimisation_loop_get_direc(self):
+        """
+        Should be optimised later as some global variables are semi-direct competitors and so
+        it's better to search diagonally (1,1),(1,-1) than (1,0),(0,1).
+        Diso and CSA are such competitors.
+        """
+        n=len(self.listStepSizes)
+        out=np.zeros( (n,n) )
+        for i in range(n):
+            out[i,i]=self.listStepSizes[i]
+        return out
+    
+    def optimisation_loop_get_globals(self):
+        out=[]
+        for func in self.listGetFunctions:
+            out.append( func() )
+        return out
+            
+    def optimisation_loop_set_globals(self, vNew):
+        for func, v in zip(self.listSetFunctions, vNew):
+            func(v)
+        
+    def calc_chisq(self):
+        chisq=0.0
+        for i, sp in enumerate(self.spinrelax):
+            chisq += sp.calc_chisq( self.data[i]['y'], self.data[i]['dy'], self.mapModelNames[i] )
+        return chisq/self.num
+    #    self.eval_all()
+    #    chiSq=0.0
+    #    for i, sp in enumerate(self.spinrelax):
+    #        self.data[i]['y'] - sp.values[self.mapModelNames[i]]
+
+def optimisation_loop_inner_function(params, *args):
+    objExpts=args[0]
+    objExpts.optimisation_loop_set_globals(params)
+    objExpts.eval_all(bVerbose=False)
+    chisq = objExpts.calc_chisq()
+    print("    ....optimisation step. Params: %s chsqi: %g" % (params, chisq) )
+    return chisq
+    
+# = = = = Old spin relaxation class below = = =
 class diffusionModel:
     """
     The base global diffusion model that contains the global rotational diffusion tensor information,
@@ -286,697 +1242,7 @@ class diffusionModel:
     def calc_Jomega(self, omega, autoCorr):
         # = = = The parent class does not apply any global diffusion.
         return J_direct_transform(omega, autoCorr)
-    
-class globalRotationalDiffusion_Base:
-    def __init__(self):
-        self.name  = 'base'        
-        self.D = None
-        self.bVecs      = False
-        self.vecNames   = None
-        self.vecXH      = None
-        self.vecWeights = None
-        
-    def report(self):
-        print( "Type:", self.name )
-        print( "Diffusion tensor components:", self.D )
-        if self.bVecs:
-            print("Principal-axis frame vectors names:", self.vecNames.shape )
-            print("Principal-axis frame vectors shape:", self.vecXH.shape )
-            if self.vecWeights is None:
-                print("Principal-axis frame vectors has no weights.")
-            else:
-                print("Principal-axis frame vectors weights shape:", self.vecWeights.shape )
-        else:                
-            print("No principal-axis frame vectors loaded.")   
 
-    def import_frame_vectors(self, fileName):
-        """
-        Reads the frame vectors distribution
-        Returns the vectors, and maybe weights whose dimensions are (nResidue, nSamples, 3).
-        Currently supports only phi-theta formats of vector definitions.
-        For straight xmgrace data files, this corresponds to the number of plots, then the data-points in each plot.
-        """
-        weights = None
-        if fileName.endswith('.npz'):
-            # = = = Treat as a numpy binary file.
-            obj = np.load(fileName, allow_pickle=True )
-            # = = = Determine data type
-            names = obj['names']
-            if obj['bHistogram']:
-                if obj['dataType'] != 'LambertCylindrical':
-                    print( "= = = Histogram projection not supported! %s" % obj['dataType'], file=sys.stderr )
-                    sys.exit(1)
-                vecs, weights = convert_LambertCylindricalHist_to_vecs(obj['data'], obj['edges'])
-            else:
-                if obj['dataType'] != 'PhiTheta':
-                    print( "= = = Numpy binary datatype not supported! %s" % obj['dataType'], file=sys.stderr )
-                    sys.exit(1)
-                # = = = Pass phi and theta directly to rtp_to_xyz
-                vecs = gm.rtp_to_xyz( obj['data'], vaxis=-1, bUnit=True )
-        else:
-            names, dist_phis, dist_thetas, dum = gs.load_sxydylist(args.distfn, 'legend')
-            vecs = gm.rtp_to_xyz( np.stack( (dist_phis,dist_thetas), axis=-1), vaxis=-1, bUnit=True )
-        if not weights is None:
-            print( "    ...converted input phi_theta data to vecXH / weights, whose shapes are:", vecs.shape, weights.shape )
-        else:
-            print( "    ...converted input phi_theta data to vecXH, whose shape is:", vecs.shape )
-        self.bVecs      = True
-        self.vecNames   = names
-        self.vecXH      = vecs
-        self.vecWeights = weights
-        
-    def get_names(self):
-        # Temporary fix as names in the npz file are ints and not string
-        return [ str(x) for x in self.vecNames]
-    #return resIDs, vecs, weights
-            
-class globalRotationalDiffusion_Isotropic(globalRotationalDiffusion_Base):
-    """
-    Subcopy for isotropic
-    """
-    def __init__(self, D=None, tau=None):
-        if D is None and tau is None:
-            print("= = = ERROR: global rotdif models must be initialised with some D or tau argeument!", file=fp)
-            return None
-        globalRotationalDiffusion_Base.__init__(self)
-        self.name='isotropic'
-        if not D is None:
-            self.D=D
-        else:
-            self.D=1.0/(6.0*tau)
-
-    def get_params(self):
-        return [self.D]
-    def change_Diso(self,Diso):
-        self.D=Diso
-
-    def get_A_coefficients(self):
-        # A_coefficients_symmtop(v, bProlate=(self.D[0]>self.D[1]))
-        return 1.0
-    def get_D_coefficients(self):
-        return self.D
-    def transform_D(self):
-        return self.D   
-    
-    def calc_Jomega_one(self, omega, CtModel):
-        """
-        This calculates the J value for combining an isotropic global tumbling with
-        a fitted internal autocorrelation C(t), where
-        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
-        thus this allows fits to multiple time constants in C(t).
-        """
-        #def J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
-        tauGlob=1.0/(6.0*self.D)
-        k = 1.0/tauGlob+1.0/CtModel.tau
-        Jmat = CtModel.zeta*CtModel.S2*tauGlob/(1.0+(omega*tauGlob)**2.0)
-        for i in range(CtModel.nComps):
-            Jmat += CtModel.zeta*CtModel.C[i]*k[i]/(k[i]**2.0+omega**2.0)
-        return Jmat
-
-    def calc_Jomega(self, omega, Autocorrs):
-        """
-        This calculates the J value for combining an isotropic global tumbling with
-        a fitted internal autocorrelation C(t), where
-        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
-        thus this allows fits to multiple time constants in C(t).
-        """
-        #def J_combine_isotropic_exp_decayN(RObj.omega, 1.0/(6.0*RObj.rotdifModel.D), S2[i], consts[i], taus[i])
-        tauGlob=1.0/(6.0*self.D)
-        Jmat = np.zeros( (Autocorrs.nModels,len(omega) ) )
-        for i, model in enumerate( Autocorrs.model.values() ):
-            Jmat[i]=self.calc_Jomega_one(omega, model )
-        return Jmat
-    
-    def calc_Jomega_rigid(self, omega):
-        return 6.0*self.D/( (6.0*self.D)**2.0 + np.power(omega,2.0) )
-
-class globalRotationalDiffusion_Axisymmetric(globalRotationalDiffusion_Base):
-    """
-    Subcopy for axi-symmetric.
-    Internal storage will be in terms of D_iso and D_aniso, rather than D_parallel, D_perpendicular
-    If the latter is given, then bConvert should be set to True during initialisation.
-    """
-    def __init__(self, D=None, bConvert=False, tau=None, aniso=None):
-        if D is None and (tau is None or aniso is None):
-            print("= = = ERROR: global rotdif models must be initialised with some D or tau/aniso argeument!", file=sys.stderr)
-            return None
-        globalRotationalDiffusion_Base.__init__(self)
-        self.name='axisymmetric'
-        if not D is None:
-            if bConvert:
-                self.D=np.array([(2.0*D[1]+D[0])/3.0, D[0]/D[1]], dtype=float)
-            else:
-                self.D=np.array(D, dtype=float)
-            #Dperp = 3.*Diso/(2+Daniso)
-            #Dpar  = Daniso*Dperp
-            # Convention: Diso, Dani --> Dpar, Dperp
-        else:
-            self.D=np.array( [1.0/(6.0*tau),aniso], dtype=float)
-        if self.D[1]>1:
-            self.bProlate=True
-        else:
-            self.bProlate=False
-
-    def get_params(self):
-        return [self.D[0], self.D[1]]
-    def change_Diso(self, Diso):
-        self.D[0]=Diso
-    def change_aniso(self, aniso):
-        self.D[1]=aniso
-
-    def get_A_coefficients(self):
-        """
-        Computes the 3 axisymmetric A-coefficients associated with orientation of the vector w.r.t. to the D_rot ellipsoid.
-        v can be many dimensions, as lons as the X/Y/Z cartesian dimensions is the last. e.g. v.shape = (M,N,3)
-        Note the current implementation is probably a bit slower on small sizes comapred to the trivial.
-        This is designed to handle many vectors at once.
-        Also note: The unique axis changes when Daniso > 1 and when Daniso < 1 so as to preserve Dx<Dy<Dz formalism.
-        This is governed by bProlate, which changes the unique axis to x when tumbling is oblate.
-        """
-        if self.bProlate:
-            # Use z-dim.
-            z2=np.square(self.vecXH.take(-1, axis=-1))
-        else:
-            # Use x-dim.
-            z2=np.square(self.vecXH.take( 0, axis=-1))
-        onemz2=1-z2
-        A0 = np.multiply( 3.0, np.multiply(z2,onemz2))
-        A1 = np.multiply(0.75, np.square(onemz2))
-        A2 = np.multiply(0.25, np.square(np.multiply(3.0,z2)-1.0))
-        return np.stack((A0,A1,A2),axis=-1)
-
-    def transform_D(self):
-        """
-        Returns pair of floats (Dpar, Dperp) from the internal Diso, aniso representation.
-        """
-        tmp=3.0*self.D[0]/(2.0+self.D[1])
-        return self.D[1]*tmp, tmp
-    
-    def get_D_coefficients(self):
-        """
-        Computes the 3 axisymmetric D-coefficients associated with the D_rot ellipsoid.
-        """
-        return D_coefficients_symmtop( self.transform_D() )
-        #return np.array( [5*Dperp+Dpar, 2*Dperp+4*Dpar, 6*Dperp] )
-    
-    def calc_Jomega(self, omega, Autocorrs):
-        #def J_combine_symmtop_exp_decayN(om, v, Dpar, Dperp, S2, consts, taus):
-        """
-        Calculates the J value for combining a symmetric-top anisotropic tumbling with
-        a fitted internal autocorrelation C(t), where
-        C(t) = S2 + Sum{ consts[i] * exp ( -t/tau[i] }
-        thus this allows fits to multiple time constants in C(t).
-    
-        This function supports giving multiple vectors at once, of the form v.shape=(L,M,N,...,3)
-        """
-        #v can be given as an array, with the X/Y/Z cartesian axisin the last position.
-        D_J=self.get_D_coefficients() ; A_J=self.get_A_coefficients()
-        sh = list(self.vecXH.shape)
-        sh[-1] = len(omega)
-        Jmat = np.zeros( sh )
-        for i, model in enumerate( Autocorrs.model.values() ):
-            Jmat[i] = _do_Jsum(omega, model.zeta*model.S2*A_J[i], D_J)
-            for j in range(model.nComps):
-                Jmat[i] += _do_Jsum(omega, model.zeta*model.C[j]*A_J[i], D_J+1./model.tau[j])
-        if False:
-            print(self.vecXH.shape)            
-            i=25
-            Dpar, Dperp = self.transform_D()
-            Dref=D_coefficients_symmtop((Dpar,Dperp))
-            print( D_J, 'vs.', Dref )
-            print("D coefficients all-close?", np.allclose(D_J,Dref) )
-            Aref=A_coefficients_symmtop(self.vecXH, bProlate=(Dpar>Dperp) )
-            print(A_J[i,0], 'vs.', Aref[i,0])
-            print("A coefficients all-close?", np.allclose(Aref,A_J) )
-            model = Autocorrs.get_nth_model(i)
-            print( "Testing model", model.name )
-            model.report()
-            JmatRef = J_combine_symmtop_exp_decayN(omega, self.vecXH[i], Dpar, Dperp, model.zeta*model.S2, model.zeta*model.C, model.tau)
-            print("J matrix all-close?", np.allclose(Jmat[i],JmatRef ) )
-            print(Jmat.shape, JmatRef.shape)
-            print( Jmat[i,0],JmatRef[0] )
-            sys.exit()
-        
-        return Jmat
-        #return _do_Jsum( S2*A_J, D_J) + np.sum([ _do_Jsum(CtModel.C[i]*A_J, D_J+1./CtModel.tau[i]) for i in range(CtModel.nComps)) ])
-
-    def calc_Jomega_rigid(self, omega):
-        D_J=self.get_D_coefficients()
-        A_J=self.get_A_coefficients()
-        return A_J*D_J/(np.power(D_J,2.0)+np.power(omega,2.0))
-
-# = = = spin relaxation = = =
-
-class spinRelaxationBase:
-    """
-    This meta class handles properties specific to a single NMR experiment, e.g. R1, R2, R1rho, hetNOE.
-    Invoking obj.eval(frequencies) should return the computations.
-    It is not aware of, per se, of the exact magnetic fields and other properties.
-    """    
-    def __init__(self, name, timeUnit='ps', angFreq=None, globalRotDif=None, localCtModels=None):
-        self.name=name
-        self.values = None
-        self.errors = None
-        self.timeUnit = timeUnit
-        self.time_fact = _return_time_fact(self.timeUnit)
-        self.angFreq   = angFreq       
-        self.globalRotDif  = globalRotDif
-        self.localCtModels  = localCtModels
-        self.check_consistency()
-        
-    def check_consistency(self):
-        if (not self.angFreq is None) and (not isinstance(self.angFreq, angularFrequencies)):
-            print("= = = ERROR in initialisation, angular freq is not of the correct class!", file=sys.stderr)
-            sys.exit(1)
-        if (not self.globalRotDif is None) and (not isinstance(self.globalRotDif, globalRotationalDiffusion_Base)):
-            print("= = = ERROR in initialisation, global rotdif model is not of the correct class!", file=sys.stderr)
-            sys.exit(1)
-        if (not self.localCtModels is None) and (not isinstance(self.localCtModels, fitCt.autoCorrelations)):
-            print("= = = ERROR in initialisation, global rotdif model is not of the correct class!", file=sys.stderr)
-            sys.exit(1)
-
-    def set_angular_frequency(self, wObj):
-        self.angFreq  = wObj
-        
-    def set_global_rotdif(self, DObj):
-        self.globalRotDif  = DObj
-    
-    def set_local_Ctmodel(self, CtModel):
-        self.localCtModels  = None
-    
-    def set_magnetic_field(self, fieldStrength, fieldUnit ):
-        self.angFreq.set_magnetic_field( fieldStrength, fieldUnit )
-    
-    def get_magnetic_field(self):
-        return self.angFreq.get_magnetic_field()
-
-    def get_name(self):
-        return self.name
-    
-    def get_description(self):
-        return "%s Experiment at %sT over %i vectors" % (self.get_name(), self.get_magnetic_field(), self.localCtModels.nModels)
-    
-    def calc_Jomega(self):
-        return self.globalRotDif.calc_Jomega(self.angFreq.omega, self.localCtModels )
-
-    def report(self):
-        print("Name:", self.name)
-        if not self.angFreq is None:
-            print("Angular frequency information...")
-            self.angFreq.report()
-        else:
-            print("No angular frequency information...")
-            
-        if not self.globalRotDif is None:
-            print("Global tumbling information...")
-            self.globalRotDif.report()
-        else:
-            print("No global tumbling information.")
-            
-        if not self.localCtModels is None:
-            print("Local C(t)-model information...")
-            self.localCtModels.report()
-        else:
-            print("No local C(t)-model information.")
-    
-    def eval(self, CSAvalue=None):
-        """
-        The core conversion step from J(omega) to the experimental observable.
-        The dimensions of array J implies whether any averaging is done, where:
-          1 - Angular frequencies omega is the only dimension involved, of 5 frequencies.
-          2 - ( names, omega ) for the isotropic multiple peak computation.
-          3 - ( names, vectors, omega ) for the axisymmetric multiple peak computation. Averaging is done here,
-              as it nominally represents the contribution of different conformers that share similar enough chemical environments
-              to be considered in the same resonance peak.
-        
-        The base class has no evaluation step. This is replaced in each subclass.
-        """
-        print("ERROR: spinRelaxationBase.eval() is not meant to be invoked.", file=sys.stderr)
-        return None
-
-    def set_zeta(self, zeta):
-        for m in self.localCtModels.model.values():
-            m.set_zeta(zeta)
-            
-    def print_values(self, style='stdout', fp=sys.stdout):
-        names = self.localCtModels.get_names()
-        if style=='stdout':
-            if self.errors is None:
-                for x,y in zip(names, self.values):
-                    print("%s %g" % (x,y), file=fp)
-            else:
-                for x,y,dy in zip(names, self.values, self.errors):
-                    print("%s %g %g" % (x,y,dy), file=fp)                
-        elif style=='xmgrace':
-            print("# %s" % self.get_description(), file=fp)
-            if self.errors is None:
-                for x,y in zip(names, self.values):
-                    print("%s %g" % (x,y), file=fp)
-            else:
-                for x,y,dy in zip(names, self.values, self.errors):
-                    print("%s %g %g" % (x,y,dy), file=fp)                
-            print("&", file=fp)
-            
-    def calc_chisq(self, Target, dTarget=None, indices=None):
-        v = self.values        
-        e = self.errors
-        if not indices is None:
-            v = v[indices]
-            if not e is None:
-                e = e[indices]
-
-        if (not e is None) and (not dTarget is None):
-            return np.mean(np.square(v-Target)/(np.square(dTarget)+np.square(e)))
-        elif e is None:
-            return np.mean(np.square(v-Target)/np.square(dTarget))
-        elif dTarget is None:
-            return np.mean(np.square(v-Target)/np.square(e))
-        else:
-            return np.mean(np.square(v-Target))
-        
-class spinRelaxationR1(spinRelaxationBase):
-    """
-    Derivative class for R1
-    """
-
-    def eval(self, CSAvalue=None):
-        """
-        The core conversion step from J(omega) to the experimental observable.
-        The dimensions of array J implies whether any averaging is done, where:
-          1 - Angular frequencies omega is the only dimension involved, of 5 frequencies.
-          2 - ( names, omega ) for the isotropic multiple peak computation.
-          3 - ( names, vectors, omega ) for the axisymmetric multiple peak computation. Averaging is done here,
-              as it nominally represents the contribution of different conformers that share similar enough chemical environments
-              to be considered in the same resonance peak.
-        """
-        iOmX = 1 ; iOmH = 3
-        J = self.calc_Jomega() ; nDim = len(J.shape)
-        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
-        f_DD  = self.angFreq.get_factor_DD()
-        f_CSA = self.angFreq.get_factor_CSA(CSAvalue)
-        temp = self.time_fact*( f_DD*( J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] ) + f_CSA*J[...,iOmX] )
-        if nDim==3:
-            self.values = np.average(temp, axis=1, weights=self.globalRotDif.vecWeights)
-            self.errors = np.sqrt( np.average( (temp-self.values[:,np.newaxis])**2.0, axis=1, weights=self.globalRotDif.vecWeights) )
-            return self.values
-        elif nDim>3:
-            print("ERROR in spinRelaxationR1.eval: the shape of J is not as expected!", file=sys.stderr)
-            return None
-        else:
-            self.values = temp
-            return self.values
-    
-class spinRelaxationR2(spinRelaxationBase):
-    """
-    Derivative class for R2
-    """    
-    def eval(self, CSAvalue=None):
-        iOmX = 1 ; iOmH = 3
-        J = self.calc_Jomega() ; 
-        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1        
-        f_DD  = self.angFreq.get_factor_DD()
-        f_CSA = self.angFreq.get_factor_CSA(CSAvalue)
-        
-        if False:
-            # HASHTAG
-            print( self.angFreq.omega )
-            Dpar, Dperp = self.globalRotDif.transform_D()
-            print( Dpar, Dperp )
-            print( Dpar/Dperp  )
-            print( f_DD, f_CSA )
-            print( self.time_fact )
-            temp = self.time_fact*( 0.5*f_DD*( 4*J[...,0] + J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] + 6*J[...,iOmH] ) + 1.0/6.0*f_CSA*(4*J[...,0] + 3*J[...,iOmX]) )
-            print( temp[0].shape, J[0].shape )
-            print( np.mean(temp[0]) )
-            print( J[0,0] )
-            sys.exit()        
-        
-        temp = self.time_fact*( 0.5*f_DD*( 4*J[...,0] + J[...,iOmH-iOmX] + 3*J[...,iOmX] + 6*J[...,iOmH+iOmX] + 6*J[...,iOmH] ) + 1.0/6.0*f_CSA*(4*J[...,0] + 3*J[...,iOmX]) )
-        nDim = len(temp.shape)
-        if nDim==2:
-            self.values = np.average(temp, axis=1, weights=self.globalRotDif.vecWeights)
-            self.errors = np.sqrt( np.average( (temp-self.values[:,np.newaxis])**2.0, axis=1, weights=self.globalRotDif.vecWeights) )
-            return self.values
-        elif nDim>2:
-            print("ERROR in spinRelaxationR2.eval: the shape of J is not as expected!", file=sys.stderr)
-            return None    
-        else:
-            self.values = temp
-            return self.values
-    
-class spinRelaxationNOE(spinRelaxationBase):
-    """
-    Derivative class for NOE
-    """    
-    def eval(self, R1values, CSAvalue=None):
-        iOmX = 1 ; iOmH = 3
-        J = self.calc_Jomega() ; nDim = len(J.shape)
-        # Note: since J is in the units of inverse time, data needs to be converted back to s^-1
-        f_DD  = self.angFreq.get_factor_DD()
-        if nDim==3:
-            temp = 1.0 + self.time_fact * self.angFreq.gB.gamma/(self.angFreq.gA.gamma*R1values[:,np.newaxis]) * f_DD*(6*J[...,iOmH+iOmX] - J[...,iOmH-iOmX]) 
-            self.values = np.average(temp, axis=1, weights=self.globalRotDif.vecWeights)
-            self.errors = np.sqrt( np.average( (temp-self.values[:,np.newaxis])**2.0, axis=1, weights=self.globalRotDif.vecWeights) )
-            return self.values
-        elif nDim>3:
-            print("ERROR in spinRelaxationNOE.eval: the shape of J is not as expected!", file=sys.stderr)
-            return None
-        else:
-            self.values = 1.0 + self.time_fact * self.angFreq.gB.gamma/(self.angFreq.gA.gamma*R1values) * f_DD*(6*J[...,iOmH+iOmX] - J[...,iOmH-iOmX])
-            return self.values
-
-            
-class spinRelaxationExperiments:
-    """
-    This is the handler class to manage multiple independent experiments and link to its associated
-    computational components.
-    Shapes of arrays:
-    - self.data( nExperiments, [x,y,dy] )
-    """
-    #listDefinedTypes=['R1','R2','NOE']
-    
-    def __init__(self, globalRotDif=None, localCtModels=None, CSAValues=None):
-        self.num=0
-        self.spinrelax=[]
-        self.data=[]
-        self.globalRotDif=globalRotDif
-        self.localCtModels=localCtModels
-        self.mapModelNames=[]
-        self.zeta=1.0
-        self.CSAValues=CSAValues
-    
-    def add_experiment(self, fileName, bIgnoreErrors=False):
-        """
-        Add one experiment into the list.
-        Meta information such as the type of experiment and the nuclei involved are given in the header section.
-        NucleiA is the heavy nuclei
-        # Type NOE
-        # NucleiA   15N
-        # NucleiB    1H
-        # Frequency 600.133
-        1 0.5 0.05
-        2 0.9 0.03
-        ...
-        """
-        strType=None ; nucleiA=None; nucleiB=None; freq=None
-        names=[] ; values=[] ; errors=[]
-        for line in open(fileName,'r'):
-            if len(line) == 0:
-                continue
-            l = line.split()                
-            if line[0] == '#' or line[0] == '@':
-                # = = = HEADER section
-                if l[1] == 'Type':
-                    strType=l[2]
-                elif l[1] == 'NucleiA':
-                    nucleiA=l[2]
-                elif l[1] == 'NucleiB':
-                    nucleiB=l[2]
-                elif l[1] == 'Frequency':
-                    freq=float(l[2])
-                continue
-            # = = = Data section.
-            if bIgnoreErrors:
-                if len(1)==1:
-                    continue
-            elif len(l)==1 or len(l)>3:
-                print("ERROR in spinRelaxationExperiments.add_experiment(): data line does not obey expected conventions of 2 or 3 space-separated values!", l, file=sts.stderr)
-                sys.exit()                
-            names.append(l[0])
-            values.append(float(l[1]))
-            if len(l)>2:
-                errors.append(float(l[2]))
-            else:
-                errors.append(None)
-
-        # = = Sanity Checks
-        if strType is None or nucleiA is None or nucleiB is None or freq is None:
-            print("ERROR in spinRelaxationExperiments.add_experiment(): not all metadata has been read! "
-                  "Require: Type, NucleiA, NucleiB, Frequency", file=sys.stderr)
-            return
-        names=np.array(names)
-        values=np.array(values, dtype=float)
-        nErrors = np.sum([ x is None for x in errors])
-        if nErrors == len(errors):
-            errors = None
-        elif nErrors > 0:
-            print("ERROR in spinRelaxationExperiments.add_experiment(): either all entries must have uncertainties or none!", file=sys.stderr)
-            print("number of values with uncertainties: %i of %i" % (nErrors, len(errors)), file=sys.stderr)
-            sys.exit(1)
-        
-        wObj = angularFrequencies(nucleiA=nucleiA, nucleiB=nucleiB, fieldStrength=freq, fieldUnit='MHz')
-        if strType=='R1':
-            obj = spinRelaxationR1(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
-        elif strType=='R2':
-            obj = spinRelaxationR2(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
-        elif strType=='NOE':
-            obj = spinRelaxationNOE(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
-        self.num += 1
-        self.spinrelax.append(obj)
-        self.data.append(dict(names=names, y=values, dy=errors))
-    
-    def report(self):
-        print("QM vibration correction factor: %g" % self.zeta)
-        if not self.globalRotDif is None:
-            self.globalRotDif.report()
-        else:
-            print("No global tumbling information loaded.")
-        if not self.localCtModels is None:
-            self.localCtModels.report()
-        else:
-            print("No local C(t) model information loaded.")
-        print("Number of experiments:", self.num )
-        for i in range(self.num):
-            print("...expt ", i)
-            self.spinrelax[i].report()
-            if not self.data[i]['dy'] is None:
-                print("Data array has %i names, %i values, %i errors" % (len(self.data[i]['names']),
-                                                                         len(self.data[i]['y']),
-                                                                         len(self.data[i]['dy'])))
-            else:
-                print("Data array has %i names, %i values," % (len(self.data[i]['names']),
-                                                               len(self.data[i]['y'])))
-
-    def map_experiment_peaknames_to_models(self):
-        """
-        This function sets up the numpy index-slicing for mapping experimental and computed peak identities.
-        It is planned to support names that have characters and not just integers representing resIDs.
-        The intended use is to run CtModels.model[mapnames[i]]
-        """
-        self.mapModelNames=[]
-        if self.localCtModels is None:
-            print("ERROR in spinRelaxationExperiments.map_peak_names: need a local C(t) model to map experimental peak names!", file=sys.stderr)
-            sys.exit(1)
-        namesCt   = self.localCtModels.get_names()
-        if not self.globalRotDif is None and self.globalRotDif.bVecs:
-            namesRotdif = self.globalRotDif.get_names()
-            if not gm.list_identical(namesCt,namesRotdif):
-                print("ERROR in spinRelaxationExperiments.map_peak_names: local C(t) model and global rotational-diffusion model do not have matching peak names!", file=sys.stderr)
-                print( "...local:",  namesCt, file=sys.stderr )
-                print( "...global:", namesRotdif, file=sys.stderr )
-                sys.exit(1)
-        
-        #= = = Use localCt as the authoritive version.
-        for i in range(self.num):
-            tmp = gm.list_get_map( namesCt, self.data[i]['names'], bValue=False )
-            self.mapModelNames.append(tmp)
-    
-    def set_zeta(self, zeta):
-        self.zeta=zeta
-        for i in range(self.num):
-            self.spinrelax[i].set_zeta(zeta)
-    
-    def set_CSA_values(self, CSAValues):
-        self.CSAValues = CSAValues
-        
-    def eval_all(self):
-        R1Values=None
-        for sp in self.spinrelax:
-            print(sp.name)
-            if sp.name=='R1':
-                R1Values = sp.eval()
-            elif sp.name=='NOE':
-                sp.eval(R1Values)
-            else:
-                sp.eval()
-
-    def print_all_values(self, style='stdout',fp=sys.stdout):
-        for sp in self.spinrelax:
-            sp.print_values(style,fp)
-            if style=='stdout':
-                print('', file=fp)
-            
-    #def calc_chiSq(self):
-    #    self.eval_all()
-    #    chiSq=0.0
-    #    for i, sp in enumerate(self.spinrelax):
-    #        self.data[i]['y'] - sp.values[self.mapModelNames[i]]
-        
-# = = = = Old spin relaxation class below
-        
-class relaxMolecule:
-    """
-    Help for class relaxMolecules:
-    This class is designed to handle the computations of spin-relaxation of an entire molecule
-    - that may contain independent domains as well as disordered linkers calling for multiple diffusion models
-    - that may contain multiple CH and NH measurements, calling for multiple relaxation models.
-    - that may contain multiple conformations for ensemble calculation in anisotropic tumbling.
-    It is equivalent to a chain with residues, that can have multiple frames with weights.
-    The permits fast computation of < J > and < Relax > over a conformational ensemble
-    and only after collapse this to an average value.
-
-    The main reason that this doesn't, e.g., directly subclass from the MDTraj chain-res-atom format
-    is that I'd like a aingle consistent place to put in all broadcasting operations..
-
-        vecNames: A 1D-array for purely identification purposes, e,g, "1" or "1NH".
-                  This is mean to serve as the first domension
-        vecXYZ:   A minimum 2D-array of unit vectors specifying the set of available orientations,
-                  associated with a related diffusion frame or as disordered.
-                  Dimension (nRes, 3) or (nFrames, nRes, 3)
-        weights:  (vecXYZ.shape or 0) A weighting for the vecXYZ so as to support histogram input in large trajectories
-
-        mapVecGyromag:(nRes) Map each vector to a type bond length, and chemical shift anisotropy.
-                  By mapping each vector to its own gyromag, this supports residue-based CSA.
-        mapVecModel: (nRes) Map each vector to an available relaxation model.
-                  This supports having multiple relaxation models for two-domain tumbling.
-    """
-
-    def __init__(self, **kwargs):
-        self.residues=[]
-        self.vectors=[]
-        if kwargs is not None:
-            for key, value in kwargs.iteritems():
-                print( "%s == %s" % (key, value) )
-
-    def num_residues(self):
-        return len(self.residues)
-
-class relaxHandlerNew:
-    """
-    Help for class relaxationModel:
-    This is the overall handling class used to compute spin relaxations from trajectories.
-    It collects a number of smaller classes that are responsible for functionally distinct sub-components,
-    i.e.:
-    - the NMR measurements, which handles frequencies, NH types, and spins.
-    - the molecule, which handles sequence information, domain definitions, rotational diffusion models, vector data
-    
-    This overall class contains the following functions:
-    - the computing and fitting procedures that need the above sub-classes.
-            
-    """
-
-    def __init__(self):
-        """
-        Initiate empty handler.
-        """
-        self.nMeasurements=0
-        self.measurements=[]
-        self.nMolecules=0
-        self.molecules=[]
-
-    def compute_all_values(self):
-        for i in nMolecules:
-           return None
 
 class relaxationModel:
     """
@@ -1069,7 +1335,7 @@ class relaxationModel:
         """
         Report the ferquency order as a debug.
         """
-        print("# Order of frequencies for %s - %s relaxation:" % (self.gX.name, self.gH.name) )
+        print("# Order of frequencies for %s - %s relaxation:" % (self.gX.isotope, self.gH.isotope) )
         print("# 0  iOmX    iOmH-iOmX   iOmH    iOmH+iOmX" )
         print( self.omega )
 
@@ -1656,7 +1922,7 @@ def calculate_relaxation(model, B_0, gamma_X=-27.116e6, DeltaSigma_X=-160e-6, r_
 def calculate_rho_from_relaxation(gamma_H, gamma_N, R1, R2, NOE):
     """
     Taking Eq. 4 of Ghose, Fushman and Cowburn (2001), calculate rho from R1, R2, and NOE directly,
-    rather than from the spectral density J(omega). THis is used to convert experimental measurements to rho.
+    rather than from the spectral density J(omega). This is used to convert experimental measurements to rho.
     """
     HF  = -0.2*(gamma_N/gamma_H)*(1-NOE)*R1
     R1p = R1 - 7.0*(0.921/0.87)**2.0*HF
@@ -1745,7 +2011,7 @@ def do_dft(t, f):
     G = np.fft.rfft(f)
     return om, G
 
-# = == =
+# = = = = Imported functions from calculate-relaxations
 def convert_LambertCylindricalHist_to_vecs(hist, edges):
     print( "= = = Reading histogram in Lambert-Cylindral projection, and returning distribution of non-zero vectors." )
     # = = = Expect histograms as a list of 2D entries: (nResidues, phi, cosTheta)
@@ -1764,3 +2030,34 @@ def convert_LambertCylindricalHist_to_vecs(hist, edges):
     return np.repeat( binVecs.reshape(nPoints,3)[np.newaxis,...], nResidues, axis=0), \
            np.reshape( hist, ( nResidues, nPoints) )
     # return vecs, weights
+    
+# There may be minor mistakes in the selection text. Try to identify what is wrong.
+def confirm_mdtraj_seltxt(mol, Hseltxt, Xseltxt):
+    bError=False
+    indH = mol.topology.select(Hseltxt)
+    indX = mol.topology.select(Xseltxt)
+    numH = len(indH) ; numX = len(indX)
+    if numH == 0:
+        bError=True
+        t1 = mol.topology.select('name H')
+        t2 = mol.topology.select('name HN')
+        t3 = mol.topology.select('name HA')
+        print( "    .... ERROR: The 'name H' selects %i atoms, 'name HN' selects %i atoms, and 'name HA' selects %i atoms." % (t1, t2, t3) )
+    if numX == 0:
+        bError=True
+        t1 = mol.topology.select('name N')
+        t2 = mol.topology.select('name NT')
+        print( "    .... ERROR: The 'name N' selects %i atoms, and 'name NT' selects %i atoms." % (t1, t2) )
+
+    resH = [ mol.topology.atom(x).residue.resSeq for x in indH ]
+    resX = [ mol.topology.atom(x).residue.resSeq for x in indX ]
+    if resX != resH:
+        bError=True
+        print( "    .... ERROR: The residue lists are not the name between the two selections:" )
+        print( "    .... Count for X (%i)" % numX, resX )
+        print( "    .... Count for H (%i)" % numH, resH )
+    if bError:
+        print("    ... Errors encountered, please fix up the selection syntax and rerun using import_frame_vectors_pdb() with these syntaxes.")
+        sys.exit(1)
+
+    return indH, indX, resX
