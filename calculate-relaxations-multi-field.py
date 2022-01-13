@@ -357,14 +357,16 @@ if __name__ == '__main__':
                         help='Input manual average CSA value, if different from the assumed value, e.g. -170 ppm for 15N.'
                              'Residue-specific variations is set if a file name is given. This file should '
                              'specify on each line the residue index and then its respective CSA value.')
-    parser.add_argument('--opt', '--fit', type=str, default=None,
-                        help='Optimise over list of possible parameters that perturb the systematic baseline of R1/R2/NOE:\n'
-                             '  (1) Diso - global tumbling rate,\n'
-                             '  (2) S2   - The zeta-prefactor representing contribution of zero-point vibrations,\n'
-                             '  (3) CSA  - The mean chemical-shift anisotropy of the heavy nucleus.\n'
-                             '  (4) new  - WIP fitting for residue-specific chemical-shift anisotropy.\n'
-                             'Using each will treat input values as an initial estimate.\n'
-                             'Valid inputs: Diso, DisoS2, DisoCSA, DisoS2CSA, new, none.')
+    parser.add_argument('--opt', '--fit', type=str, dest='listOptParams', default='',
+                        help='Perform optimisation using all laoded experiments, over possible parameters %s:\n'
+                             '  - Diso, isotropic tumbling rate of the domain,\n'
+                             '  - Daniso, axisymmetric tumbling anisotropy,\n'
+                             '  - zeta, QM zero-point vibration contribution to local autocorrelation,\n'
+                             '  - CSA, mean chemical shift anisotropy of the heavy nuclei (nucleiA),\n'
+                             '  - rsCSA, residue-specific chemical-shift anisotropies.\n'
+                             'Set these using a single comma-separated string as the argument. '
+                             'The order given will be the order used inthe optimisation loop\n' \
+                             % (sd.spinRelaxationExperiments.listAllowedOptimisationVariables) )
     parser.add_argument('--cycles', type=int, default=100,
                         help='For the new per-residue CSA fitting algorithm, do a maximum of N cycles between the global Diso versus the local CSA fits. '
                              'Each cycle begins by optimising Diso over all residues, then optimising each CSA separately against the new global value. '
@@ -464,18 +466,14 @@ if __name__ == '__main__':
         else:
             print( "= = = ERROR at parsing the --csa argument!", file=sys.stderr )
             sys.exit(1)
-
-    objExpts.parse_optimisation_params(['Diso','Daniso'])
-    objExpts.perform_optimisation()
-    sys.exit()
-            
             
     # = = = evaluation section. Determine what is to be done wioth the data.
-    listOpt = args.opt
+    listOpt = args.listOptParams.split(',')
     
-    if listOpt is None:
-        # = = = No optimisation. Simply print the direct prediction for each experiment.
+    # = = = No optimisation. Simply print the direct prediction for each experiment. = = =
+    if len(listOpt) == 0:
         objExpts.eval_all(bVerbose=True)
+        objExpts.export_xvg(args.out_pref, bIncludeExpt=False)
         for sp in objExpts.spinrelax:
             outputFile="%s_%sT_%s.dat" % (args.out_pref, str(round(sp.get_magnetic_field())), sp.get_name())
             fp=open(outputFile,'w')
@@ -485,14 +483,24 @@ if __name__ == '__main__':
         #for i, sp in enumerate(objExpts.spinrelax):
         #    print( sp.name, 'chisq comparison:' )
         #    print( sp.calc_chisq(objExpts.data[i]['y'],objExpts.data[i]['dy'], objExpts.mapModelNames[i] ))
+        time_stop=time.time()
+        #Report time
+        print( "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start) )
         sys.exit()
+    # = = = End No optimisation. = = =
+        
+    objExpts.parse_optimisation_params(listOpt)
+    print("= = = Parsed input %s. Conducting optimisations over parameters %s ..." % (args.listOptParams, objExpts.listUpdateVariables))
+    objExpts.perform_optimisation()
+    objExpts.export_xvg(args.out_pref, bIncludeExpt=True)
     
+    time_stop=time.time()
+    #Report time
+    print( "= = Finished. Total seconds elapsed: %g" % (time_stop - time_start) )
+    sys.exit()
     # = = =
 
     # = = = Based on simulation fits, obtain R1, R2, NOE for this X-H vector
-    param_names=("Diso", "zeta", "CSA", "chi")
-    param_scaling=( 1.0, zeta, 1.0e6, 1.0 )
-    param_units=(relax_obj.timeUnit+"^-1", "a.u.", "ppm", "a.u." )
     optHeader=''
     #relax_obj.rotdif_model.change_Diso( Diso )
     if not bOptPars:

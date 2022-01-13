@@ -396,11 +396,17 @@ class globalRotationalDiffusion_Isotropic(globalRotationalDiffusion_Base):
         else:
             self.D=1.0/(6.0*tau)
     
+    def get_Diso(self):
+        return self.D
     def set_Diso(self,Diso):
         self.D=Diso
         self.D_J=self.D        
-    def get_Diso(self):
-        return self.D
+
+    # = = = Dummy and has no effect.
+    def get_Daniso(self):
+        return 1.0
+    def set_Daniso(self,Diso):
+        return        
         
     def update_A_coefficients(self):
         return
@@ -732,6 +738,13 @@ class spinRelaxationBase:
             f = self.angFreq.get_magnetic_field(unit='MHz')
             print('# Frequency %g %s' % (f, 'MHz'), file=fp)
 
+    def get_suffix_from_conditions(self):
+        out=''
+        out+='_%s%s' % ( self.angFreq.gA.isotope, self.angFreq.gB.isotope )
+        out+='_%iMHz' % ( round(self.angFreq.get_magnetic_field(unit='MHz')) )
+        out+='_%s' % ( self.name )        
+        return out
+            
     def print_values(self, style='stdout', fp=sys.stdout):
         names = self.localCtModels.get_names()
         if style=='stdout':
@@ -740,13 +753,15 @@ class spinRelaxationBase:
                     print("%s %g" % (x,y), file=fp)
             else:
                 for x,y,dy in zip(names, self.values, self.errors):
-                    print("%s %g %g" % (x,y,dy), file=fp)                
-        elif style=='xmgrace':
-
+                    print("%s %g %g" % (x,y,dy), file=fp)
+            print('', file=fp)
+        elif style=='xmgrace':            
             if self.errors is None:
+                print("@type xy", file=fp)
                 for x,y in zip(names, self.values):
                     print("%s %g" % (x,y), file=fp)
             else:
+                print("@type xydy", file=fp)                
                 for x,y,dy in zip(names, self.values, self.errors):
                     print("%s %g %g" % (x,y,dy), file=fp)                
             print("&", file=fp)
@@ -873,7 +888,13 @@ class spinRelaxationExperiments:
         self.globalRotDif=globalRotDif
         self.localCtModels=localCtModels
         self.mapModelNames=[]
-        self.bFitInitialised=False
+        self.bOptInitialised=False
+        self.listUpdateVariables=[]        
+        self.listStepSizes=[]
+        self.listSetFunctions=[]
+        self.listGetFunctions=[]        
+        self.bOptCompleted=False
+        self.chisq = None
     
     def add_experiment(self, fileName, bIgnoreErrors=False):
         """
@@ -944,6 +965,23 @@ class spinRelaxationExperiments:
         self.num += 1
         self.spinrelax.append(obj)
         self.data.append(dict(names=names, y=values, dy=errors))
+    
+    def print_experiment_data(self, ind, style='stdout', fp=sys.stdout):
+        d = self.data[ind] 
+        if d['dy'] == None:
+            if style=='xmgrace':
+                print('@type xy', file=fp)
+            for x,y in zip(d['names'], d['y']):
+                print("%s %g" % (x,y), file=fp)
+        else:
+            if style=='xmgrace':
+                print('@type xydy', file=fp)
+            for x,y,dy in zip(d['names'],d['y'],d['dy']):
+                print("%s %g %g" % (x,y,dy), file=fp)
+            if style=='xmgrace':
+                print('&', file=fp)
+            else:
+                print('', file=fp)
     
     def report(self):
         print("QM vibration correction factor: %g" % self.get_zeta() )
@@ -1017,11 +1055,29 @@ class spinRelaxationExperiments:
             #print(v.shape, v[0])
 
     def print_all_values(self, style='stdout',fp=sys.stdout):
+        """
+        A more basic output.
+        """
         for sp in self.spinrelax:
             sp.print_values(style,fp)
-            if style=='stdout':
-                print('', file=fp)
 
+    def export_xvg(self, filePrefix, bIncludeExpt=False):
+        """
+        Export to xmgrace format, similat to the older SpinRelax workflow
+        """
+        style='xmgrace'
+        for i,sp in enumerate(self.spinrelax):
+            outFile = '%s%s.xvg' % ( filePrefix, sp.get_suffix_from_conditions() )
+            fp = open( outFile, 'w' )
+            self.print_parameters(fp)
+            print('', file=fp)
+            print('@target s0', file=fp)
+            sp.print_values(style,fp)
+            if bIncludeExpt:
+                print('@target s1', file=fp)
+                self.print_experiment_data(ind=i, style='xmgrace', fp=fp)
+        fp.close()
+            
     def set_global_Diso(self, Diso):
         self.globalRotDif.set_Diso(Diso)
     def get_global_Diso(self):
@@ -1044,40 +1100,70 @@ class spinRelaxationExperiments:
         return self.spinrelax[0].angFreq.gA.get_csa()
             
     # = = = = Optimisation related functions and classes.
-    listOptimisationVariables=['Diso','Daniso','CSA','zeta','resCSA']
-    
+    listAllowedOptimisationVariables=['Diso','Daniso','CSA','zeta','rsCSA']
+    dictStepSizes={    'Diso': 1e-5, 'Daniso': 0.1, 'zeta': 0.1, 'CSA': 1e-5, 'rsRSA': 1e-5 }
+    dictExportScaling = { 'Diso': 1.0, 'Daniso': 1.0, 'zeta': 1.0, 'CSA': 1e6, 'rsRSA': 1e6 }
+    # = = = Fix Diso's timeUnits for now. **TODO**
+    dictExportUnits = { 'Diso': 'ps^-1', 'Daniso': 'a.u.', 'zeta': 'a.u.', 'CSA': 'ppm', 'rsRSA': 'ppm' }
+
+    def print_parameters(self, fp=sys.stdout):
+        for x in spinRelaxationExperiments.listAllowedOptimisationVariables:
+            if x == 'rsCSA':
+                continue
+            v = self.return_get_function(x)()
+            s1 = 'Optimised' if x in self.listUpdateVariables else 'Fixed'
+            print( '# %s %s: %g %s' % (s1,
+                                     x,
+                                     v*spinRelaxationExperiments.dictExportScaling[x],
+                                     spinRelaxationExperiments.dictExportUnits[x],
+                                    ), file=fp )
+        if self.bOptCompleted:
+            print( '# Optimised chi: %g a.u.' % np.sqrt(self.chisq), file=fp)
+            
+    # = = = Can only set up after the instance is invoked.
+    def return_get_function(self, param):        
+        if param == 'Diso':
+            return self.get_global_Diso
+        if param == 'Daniso':
+            return self.get_global_Daniso
+        if param == 'zeta':
+            return self.get_global_zeta
+        if param == 'CSA':
+            return self.get_first_globalCSA
+        if param == 'rsRSA':
+            return None
+        
+    def return_set_function(self, param):        
+        if param == 'Diso':
+            return self.set_global_Diso
+        if param == 'Daniso':
+            return self.set_global_Daniso
+        if param == 'zeta':
+            return self.set_global_zeta
+        if param == 'CSA':
+            return self.set_all_globalCSA
+        if param == 'rsRSA':
+            return None  
+        
     def parse_optimisation_params(self,listOpts):
-        self.bFitInitialised=False
+        self.bOptInitialised=False
         self.listUpdateVariables=[]
         self.listStepSizes=[]
         self.listSetFunctions=[]
         self.listGetFunctions=[]
         for o in listOpts:
-            if o not in spinRelaxationExperiments.listOptimisationVariables:
+            if o not in spinRelaxationExperiments.listAllowedOptimisationVariables:
                 _BAIL( "parse_optimisation_params",
                         "Optimisation variable %s not found in list!\n"
                         "Possibilities are: %s "% (o, spinRelaxationExperiments.listOptimisationVariables) )
-            if o == 'Diso':
-                self.listSetFunctions.append(self.set_global_Diso)
-                self.listGetFunctions.append(self.get_global_Diso)
-                self.listStepSizes.append(1e-5)
-            if o == 'Daniso':
-                self.listSetFunctions.append(self.set_global_Daniso)
-                self.listGetFunctions.append(self.get_global_Daniso)
-                self.listStepSizes.append(0.1)
-            elif o == 'zeta':
-                self.listSetFunctions.append(self.set_global_zeta)
-                self.listGetFunctions.append(self.get_global_zeta)
-                self.listStepSizes.append(0.1)
-            elif o == 'CSA':
-                self.listSetFunctions.append(self.set_all_globalCSA)
-                self.listGetFunctions.append(self.get_first_globalCSA)
-                self.listStepSizes.append(1e-5)
+            self.listGetFunctions.append(self.return_get_function(o))                
+            self.listSetFunctions.append(self.return_set_function(o))
+            self.listStepSizes.append(spinRelaxationExperiments.dictStepSizes[o])
             self.listUpdateVariables.append(o)
-        self.bFitInitialised=True
+        self.bOptInitialised=True
         
     def perform_optimisation(self):
-        if not self.bFitInitialised:
+        if not self.bOptInitialised:
             _BAIL("perform_fit","You must first run parse_optimisation_params to tell the script what to optimise.")
         from scipy.optimize import fmin_powell      
         fminOut = fmin_powell(optimisation_loop_inner_function,
@@ -1088,6 +1174,8 @@ class spinRelaxationExperiments:
         #out = fmin_powell(optfunc_R1R2NOE_Diso, x0=DisoOpt, direc=[0.1*DisoOpt], args=(...), full_output=True )       
         print( "= = = Optimisation complete over variables: %s" % self.optimisation_loop_get_param_names() )
         print( fminOut )
+        self.bOptCompleted=True
+        self.chisq = fminOut[1]
         
     def optimisation_loop_get_param_names(self):
         return self.listUpdateVariables
@@ -1129,7 +1217,7 @@ def optimisation_loop_inner_function(params, *args):
     objExpts.optimisation_loop_set_globals(params)
     objExpts.eval_all(bVerbose=False)
     chisq = objExpts.calc_chisq()
-    print("    ....optimisation step. Params: %s chsqi: %g" % (params, chisq) )
+    print("    ....optimisation step. Params: %s chisq: %g" % (params, chisq) )
     return chisq
     
 # = = = = Old spin relaxation class below = = =
