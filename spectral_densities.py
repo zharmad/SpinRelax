@@ -6,6 +6,7 @@ import npufunc
 import general_maths as gm
 from collections import OrderedDict
 import fitting_Ct_functions as fitCt 
+from scipy.optimize import fmin_powell
 """
 Notes: Uses a user-defined numpy universal function in C (npufunc.so)
 to compute F(x,y)=x/(x+y) across an array.
@@ -100,27 +101,27 @@ class gyromagMultiCSA(gyromag):
         else:
             self.set_csa(np.repeat(0.0,self.num))
             
-    def set_csa(self, csa, i=None):
+    def set_csa(self, csa, ind=None):
         """
         Sets whole array if no index argument is given. Does a sanity check against its own number of nuclei.
         """
-        if i is None:
+        if ind is None:
             if self.num == len(csa):
                 self.csa = np.array(csa)
             else:
                 print("= = ERROR: attempting to set CSA array in gyromagMultiCSA, but the lengths to not match!")
                 sys.exit(1)
         else:
-            self.csa[i] = csa
+            self.csa[ind] = csa
         
-    def get_csa(self, i=None):
+    def get_csa(self, ind=None):
         """
         Returns whole array if no index argument is given.
         """        
-        if i is None:
+        if ind is None:
             return self.csa
         else:
-            return self.csa[i]
+            return self.csa[ind]
         
 # = = = omega = = =
 def calc_omega_names(nA, nB):
@@ -244,8 +245,8 @@ class angularFrequencies:
     def initialise_CSA_array(self, numCSAs, CSAvalues=None):
         self.gA = gyromagMultiCSA( self.gA.isotope, numCSAs, CSAvalues)
     
-    def update_CSA_array(self, csa, ind=None):
-        self.gA.set_csa(self, csa, ind)
+    #def update_CSA_array(self, csa, ind=None):
+    #    self.gA.set_csa(self, csa, ind)
     
 # = = = = Global rotations. = = =
     
@@ -302,6 +303,7 @@ class globalRotationalDiffusion_Base:
         self.vecWeights = np.swapaxes(weights,0,1)
         self.axisAvg = 0
         print("Debug import_frame_vectors_npz:", self.vecXH.shape, self.vecWeights.shape )
+        self.update_A_coefficients()
         
     def import_frame_vectors_pdb(self, pdbFile, trjFile=None, HSelTxt='name H', XSelText='name N and not resname PRO'):
         """
@@ -341,6 +343,7 @@ class globalRotationalDiffusion_Base:
         self.vecXH      = vecs
         self.vecWeights = None
         print("Debug import_frame_vectors_pdb:", self.vecXH.shape )
+        self.update_A_coefficients()
         
     def import_frame_vectors(self, fileName):
         """
@@ -372,6 +375,7 @@ class globalRotationalDiffusion_Base:
         self.vecNames   = names
         self.vecXH      = vecs
         self.vecWeights = weights
+        self.update_A_coefficients()        
         print("Debug import_frame_vectors_generic:", self.vecXH.shape, self.vecWeights.shape )        
         print("ERROR: THe generic dfunctionality has noe been tested. Aborting for safety.")
         sys.exit()
@@ -395,7 +399,8 @@ class globalRotationalDiffusion_Isotropic(globalRotationalDiffusion_Base):
             self.D=D
         else:
             self.D=1.0/(6.0*tau)
-    
+        self.update_D_coefficients()
+            
     def get_Diso(self):
         return self.D
     def set_Diso(self,Diso):
@@ -481,6 +486,7 @@ class globalRotationalDiffusion_Axisymmetric(globalRotationalDiffusion_Base):
             self.bProlate=True
         else:
             self.bProlate=False
+        self.update_D_coefficients()
     
     def set_Diso(self, Diso):
         self.D[0]=Diso
@@ -493,7 +499,6 @@ class globalRotationalDiffusion_Axisymmetric(globalRotationalDiffusion_Base):
         return self.D[0] 
     def get_Daniso(self):
         return self.D[1]
-        
 
     def update_A_coefficients(self):
         """
@@ -569,10 +574,10 @@ class globalRotationalDiffusion_Axisymmetric(globalRotationalDiffusion_Base):
         If this cannot be assumed, e.g. where the CtModels are a subset of the vectors, give bSearch as an argument.
         """
         #v can be given as an array, with the X/Y/Z cartesian axisin the last position.
-        if self.D_J is None:
-            self.update_D_coefficients()
-        if self.A_J is None:
-            self.update_A_coefficients()
+        #if self.D_J is None:
+        #    self.update_D_coefficients()
+        #if self.A_J is None:
+        #    self.update_A_coefficients()
         #D_J=self.get_D_coefficients() ; A_J=self.get_A_coefficients()
         if bSearch:
             sh = list(self.vecXH.shape) ; sh[0] = Autocorrs.nModels ; sh[-1] = len(omega)
@@ -606,15 +611,21 @@ class spinRelaxationBase:
     It is not aware of, per se, of the exact magnetic fields and other properties.
     """    
     def __init__(self, name, timeUnit='ps', angFreq=None, globalRotDif=None, localCtModels=None):
-        self.name=name
-        self.values = None
-        self.errors = None
+        """        
+        It is generally expected that all three subinstances will be supplied on creation.
+        """
+        self.name    = name
+        self.values  = None
+        self.errors  = None
         self.timeUnit = timeUnit
         self.time_fact = _return_time_fact(self.timeUnit)
         self.angFreq   = angFreq       
         self.globalRotDif  = globalRotDif
         self.localCtModels  = localCtModels
         self.check_consistency()
+
+        if (not globalRotDif is None) and (not localCtModels is None):
+            self.reset_values()        
         
     def check_consistency(self):
         if (not self.angFreq is None) and (not isinstance(self.angFreq, angularFrequencies)):
@@ -642,20 +653,20 @@ class spinRelaxationBase:
     def get_magnetic_field(self):
         return self.angFreq.get_magnetic_field()
 
+    def get_num(self):
+        return self.localCtModels.nModels
+    
     def get_name(self):
         return self.name
     
     def get_description(self):
-        return "%s Experiment at %sT over %i vectors" % (self.get_name(), self.get_magnetic_field(), self.localCtModels.nModels)
-
-    #def calc_Jomega_one(self, ind):
-    #    return self.globalRotDif.calc_Jomega_one(self.angFreq.omega, self.localCtModels.model[i], ind )
+        return "%s Experiment at %sT over %i vectors" % (self.get_name(), self.get_magnetic_field(), self.get_num() )
     
     def calc_Jomega(self, ind=None):
         if ind is None:
             return self.globalRotDif.calc_Jomega(self.angFreq.omega, self.localCtModels )
         else:
-            return self.globalRotDif.calc_Jomega_one(self.angFreq.omega, self.localCtModels.model[ind], ind )
+            return self.globalRotDif.calc_Jomega_one(self.angFreq.omega, self.localCtModels.get_nth_model(ind), ind )
 
     def report(self):
         print("Name:", self.name)
@@ -704,24 +715,47 @@ class spinRelaxationBase:
     def get_zeta(self):
         return self.localCtModels.get_zeta()
 
+    def reset_values(self):
+        """
+        Prepares the values array, and errors array if the global vectors require averaging.
+        """
+        n=self.get_num()
+        self.values=np.zeros(n)
+        if not self.globalRotDif.axisAvg is None:
+            self.errors=np.zeros(n)
+    
     def update_values(self, values, errors=None, ind=None):
         if ind is None:
             self.values = values
             if not errors is None:
                 self.errors = errors
         else:
-            self.values[i] = values
+            self.values[ind] = values
             if not errors is None:
-                self.errors[i] = errors
-            
+                self.errors[ind] = errors   
+                
+    def get_values(self, ind=None):
+        if ind is None:
+            return self.values
+        else:
+            return self.values[ind]
+                
+    def get_errors(self, ind=None):
+        if ind is None:
+            return self.errors
+        elif not self.errors is None:
+            return self.errors[ind]
+        else:
+            return None
+
     def check_and_calculate_average(self, arr, ind=None):
         nDim=len(arr.shape)
         e = None
         if self.globalRotDif.axisAvg is None:
             return arr, e
         elif ind is None:
-            v = np.average(arr, axis=0, weights=self.globalRotDif.vecWeights)
-            e = np.sqrt( np.average( (arr-v)**2.0, axis=0, weights=self.globalRotDif.vecWeights) )
+            v = np.average(arr, axis=self.globalRotDif.axisAvg, weights=self.globalRotDif.vecWeights)
+            e = np.sqrt( np.average( (arr-v)**2.0, axis=self.globalRotDif.axisAvg, weights=self.globalRotDif.vecWeights) )
             return v, e
         else:
             v = np.average(arr, weights=self.globalRotDif.vecWeights[:,ind])
@@ -882,20 +916,22 @@ class spinRelaxationExperiments:
     #listDefinedTypes=['R1','R2','NOE']
     
     def __init__(self, globalRotDif=None, localCtModels=None):
-        self.num=0
+        self.numExpts=0
         self.spinrelax=[]
         self.data=[]
         self.globalRotDif=globalRotDif
         self.localCtModels=localCtModels
         self.mapModelNames=[]
+        self.mapExptCoverage=[]
         self.bOptInitialised=False
         self.listUpdateVariables=[]        
         self.listStepSizes=[]
         self.listSetFunctions=[]
-        self.listGetFunctions=[]        
+        self.listGetFunctions=[]
+        self.bDoLocalOpt=False
         self.bOptCompleted=False
         self.chisq = None
-    
+            
     def add_experiment(self, fileName, bIgnoreErrors=False):
         """
         Add one experiment into the list.
@@ -962,7 +998,7 @@ class spinRelaxationExperiments:
             obj = spinRelaxationR2(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
         elif strType=='NOE':
             obj = spinRelaxationNOE(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
-        self.num += 1
+        self.numExpts += 1
         self.spinrelax.append(obj)
         self.data.append(dict(names=names, y=values, dy=errors))
     
@@ -993,8 +1029,8 @@ class spinRelaxationExperiments:
             self.localCtModels.report()
         else:
             print("No local C(t) model information loaded.")
-        print("Number of experiments:", self.num )
-        for i in range(self.num):
+        print("Number of experiments:", self.numExpts )
+        for i in range(self.numExpts):
             print("...expt ", i)
             self.spinrelax[i].report()
             if not self.data[i]['dy'] is None:
@@ -1009,9 +1045,15 @@ class spinRelaxationExperiments:
         """
         This function sets up the numpy index-slicing for mapping experimental and computed peak identities.
         It is planned to support names that have characters and not just integers representing resIDs.
-        The intended use is to run CtModels.model[mapnames[i]]
+        
+        This creates two maps:
+        1. self.mapModelNames, which contains the indexes of the simulated residue set that is covered by a given experiment
+           Example use: [ self.CtModels.model[self.mapModelNames[i]] for i in range(self.numExpts) ]
+           The index of the list corresponds to the order of the spinrelaxation experiment.
+        2. self.mapExptCoverage, which contains the experiments and peaks that matches a given simulated residue.
+           Example use: [ self.spinrelax[exptID].eval(ind=peakID) for exptID, peakID in self.mapExptCoverage ]
         """
-        self.mapModelNames=[]
+        # = = = Perform sanity checks amongst the simulated dataset.
         if self.localCtModels is None:
             print("ERROR in spinRelaxationExperiments.map_peak_names: need a local C(t) model to map experimental peak names!", file=sys.stderr)
             sys.exit(1)
@@ -1024,28 +1066,81 @@ class spinRelaxationExperiments:
                 print( "...global:", namesRotdif, file=sys.stderr )
                 sys.exit(1)
         
-        #= = = Use localCt as the authoritive version.
-        for i in range(self.num):
+        #= = = Use localCt as the authoritive version and construct map
+        print("    ....mapping peak sets (residue IDs) between simulated localCtModels and expeirmental datasets")
+        self.mapModelNames=[]        
+        for i in range(self.numExpts):
             tmp = gm.list_get_map( namesCt, self.data[i]['names'], bValue=False )
             self.mapModelNames.append(tmp)
         
-    def initialise_CSA_array(self, CSAValues):
+        self.mapExptCoverage=[]
+        for i in range(self.localCtModels.nModels):
+            l=[]
+            for exptID in range(self.numExpts):
+                ret = np.where(self.data[exptID]['names']== namesCt[i])[0]
+                if len(ret)>0:
+                    peakID=ret[0]
+                    l.append( (exptID,peakID) )
+            self.mapExptCoverage.append(l)
+        
+    def report_maps(self):
+        s=''
+        for indices in self.mapModelNames:
+            s+=' %i' % len(indices)
+        print("Number of simulation residues covered by each experiment:", s)
+        s=''
+        for item in self.mapExptCoverage:
+            s+=' %i' % len(item)
+        print("Number of Experiments covering each simulation residue:", s)
+        
+    def initialise_CSA_array(self, namesCSA, CSAValues):
         """
         Searches through all experiments and 
+        Current supports only a single type of nuclei, e.g. 15N-1H to be shared amongst all experiments.
         """
-        for sp in self.spinrelax:
-            sp.angFreq.initialise_CSA_array(len(CSAValues), CSAValues)
+        #= = = Sanity check
+        namesCSA = [ str(x) for x in namesCSA ]
+        csaDefault = self.get_first_csa()
+        namesTest=self.localCtModels.get_names()
+        if not gm.list_identical(namesTest, namesCSA):
+            _WARN("initialise_CSA_array", "The given CSA array is not identical to the simulated set! Will try to patch.")
+            fracOverlap=gm.list_overlap_fraction(namesCSA, namesTest)
+            print("Note that the two sets overlap by %f%%" % (100*fracOverlap), file=sys.stderr)
+            if fracOverlap == 0:
+                print( type(namesCSA), type(namesCSA[0]), namesCSA[0] )
+                print( type(namesTest), type(namesTest[0]), namesTest[0] )
+                _BAIL("initialise_CSA_array", "There is no matching names betwen the input CSA and simulated datasets! Please check your x-values and their variable types!")
+            tmp = []
+            for n in namesCt:
+                if n in namesCSA:
+                    count+=1
+                    csa = CSAValues[namesCSA.index(n)]
+                else:
+                    csa = csaDefault
+            tmp.append(csa)
+            print("    ... CSA patching complete.")
+            #_BAIL("initialise_CSA_array", "The given CSA array must be identical to the simulated set! Mapping is not currently supported")
+        else:
+            tmp = CSAValues
 
-    def update_CSA_array(self, csa, ind=None):
+        #= = =
         for sp in self.spinrelax:
-            sp.angFreq.update_CSA_array(csa, ind=None)
+            sp.angFreq.initialise_CSA_array(len(tmp), tmp)
+
+    # = = The rest is all done by the same get_csa and set_csa commands.
+    #def get_first_CSA_array(self, csa, ind=None):
+    #    self.spinrelax[0].angFreq.get_csa(ind=ind)
         
-    def eval_all(self, bVerbose=False):
+    #def update_CSA_array(self, csa, ind=None):
+    #    for sp in self.spinrelax:
+    #        sp.angFreq.update_CSA_array(csa, ind=None)
+            
+    def eval_all(self, ind=None, bVerbose=False):
         R1Values=None
         for sp in self.spinrelax:
             if bVerbose:
                 print('...evaluating experiment %s at %g T.' % (sp.name,sp.angFreq.B0))
-            sp.eval(bVerbose=bVerbose)
+            sp.eval(ind=ind, bVerbose=bVerbose)
             #if sp.name=='R1':
             #    R1Values = sp.eval()
             #elif sp.name=='NOE':
@@ -1054,6 +1149,18 @@ class spinRelaxationExperiments:
             #    sp.eval()
             #print(v.shape, v[0])
 
+    def reset_all_values(self, bResetErrors=False):
+        for sp in self.spinrelax:
+            sp.reset_values(bResetErrors=bResetErrors)
+            
+    def get_all_values(self, ind=None):
+        out=[]
+        for sp in self.spinrelax:
+            v=sp.get_values(ind=ind) ; e=sp.get_errors(ind=ind)
+            l = [v,e] if not e is None else [v]
+            out.append(l)
+        return out
+    
     def print_all_values(self, style='stdout',fp=sys.stdout):
         """
         A more basic output.
@@ -1069,7 +1176,8 @@ class spinRelaxationExperiments:
         for i,sp in enumerate(self.spinrelax):
             outFile = '%s%s.xvg' % ( filePrefix, sp.get_suffix_from_conditions() )
             fp = open( outFile, 'w' )
-            self.print_parameters(fp)
+            sp.print_metadata(style,fp)
+            self.print_parameters(style,fp)
             print('', file=fp)
             print('@target s0', file=fp)
             sp.print_values(style,fp)
@@ -1093,25 +1201,31 @@ class spinRelaxationExperiments:
     def get_global_zeta(self):
         return self.localCtModels.get_zeta()
 
-    def set_all_globalCSA(self, csa):
+    def set_all_csa(self, csa, ind=None):
         for sp in self.spinrelax:
-            sp.angFreq.gA.set_csa(csa)
-    def get_first_globalCSA(self):
-        return self.spinrelax[0].angFreq.gA.get_csa()
+            sp.angFreq.gA.set_csa(csa, ind)
+    def get_first_csa(self, ind=None):
+        return self.spinrelax[0].angFreq.gA.get_csa(ind)
             
     # = = = = Optimisation related functions and classes.
     listAllowedOptimisationVariables=['Diso','Daniso','CSA','zeta','rsCSA']
-    dictStepSizes={    'Diso': 1e-5, 'Daniso': 0.1, 'zeta': 0.1, 'CSA': 1e-5, 'rsRSA': 1e-5 }
-    dictExportScaling = { 'Diso': 1.0, 'Daniso': 1.0, 'zeta': 1.0, 'CSA': 1e6, 'rsRSA': 1e6 }
+    dictStepSizes={    'Diso': 1e-5, 'Daniso': 0.1, 'zeta': 0.1, 'CSA': 1e-5, 'rsCSA': 1e-5 }
+    dictExportScaling = { 'Diso': 1.0, 'Daniso': 1.0, 'zeta': 1.0, 'CSA': 1e6, 'rsCSA': 1e6 }
     # = = = Fix Diso's timeUnits for now. **TODO**
-    dictExportUnits = { 'Diso': 'ps^-1', 'Daniso': 'a.u.', 'zeta': 'a.u.', 'CSA': 'ppm', 'rsRSA': 'ppm' }
+    dictExportUnits = { 'Diso': 'ps^-1', 'Daniso': 'a.u.', 'zeta': 'a.u.', 'CSA': 'ppm', 'rsCSA': 'ppm' }
 
-    def print_parameters(self, fp=sys.stdout):
+    def print_parameters(self, style='stdout', fp=sys.stdout):
         for x in spinRelaxationExperiments.listAllowedOptimisationVariables:
             if x == 'rsCSA':
                 continue
             v = self.return_get_function(x)()
             s1 = 'Optimised' if x in self.listUpdateVariables else 'Fixed'
+            if x == 'CSA' and type(v) is np.ndarray:
+                v = np.mean(v)
+                if self.bOptCompleted and self.bDoLocalOpt:
+                    s1='OptimisedMean'
+                else:
+                    s1='FixedMean'
             print( '# %s %s: %g %s' % (s1,
                                      x,
                                      v*spinRelaxationExperiments.dictExportScaling[x],
@@ -1129,7 +1243,7 @@ class spinRelaxationExperiments:
         if param == 'zeta':
             return self.get_global_zeta
         if param == 'CSA':
-            return self.get_first_globalCSA
+            return self.get_first_csa
         if param == 'rsRSA':
             return None
         
@@ -1141,7 +1255,7 @@ class spinRelaxationExperiments:
         if param == 'zeta':
             return self.set_global_zeta
         if param == 'CSA':
-            return self.set_all_globalCSA
+            return self.set_all_csa
         if param == 'rsRSA':
             return None  
         
@@ -1151,21 +1265,92 @@ class spinRelaxationExperiments:
         self.listStepSizes=[]
         self.listSetFunctions=[]
         self.listGetFunctions=[]
+        # = = = First sanity check
+        if 'CSA' in listOpts and 'rsCSA' in listOpts:
+            _BAIL("parse_optimisation_params","Cannot run both global CSA as well as residue-specific CSA optimisation!")
+        
         for o in listOpts:
             if o not in spinRelaxationExperiments.listAllowedOptimisationVariables:
                 _BAIL( "parse_optimisation_params",
                         "Optimisation variable %s not found in list!\n"
-                        "Possibilities are: %s "% (o, spinRelaxationExperiments.listOptimisationVariables) )
+                        "Possibilities are: %s "% (o, spinRelaxationExperiments.listAllowedOptimisationVariables) )
+            if o == 'rsCSA':
+                # = = = Check if CSA is already an array and not in globals.
+                csa = self.get_first_csa()
+                if not type(csa) is np.ndarray:         
+                    print("    ... NOTE: CSA values have not been preset but residue-specific CSA optimisation is being performed. "
+                          "Reinitialising CSA variables as being residue-specific.")
+                    CSAvaluesArray = np.repeat( csa, self.localCtModels.nModels )
+                    self.initialise_CSA_array(self.localCtModels.get_names(), CSAvaluesArray)
+                    
+                # = = = This argument does not trigger global optimisation procedures.
+                self.bDoLocalOpt=True
+                continue
             self.listGetFunctions.append(self.return_get_function(o))                
             self.listSetFunctions.append(self.return_set_function(o))
             self.listStepSizes.append(spinRelaxationExperiments.dictStepSizes[o])
             self.listUpdateVariables.append(o)
         self.bOptInitialised=True
         
-    def perform_optimisation(self):
+    def perform_optimisation(self, maxCycles=10,tol=1e-6):
+        """
+        The outward facing function that handles the main optimisation loops.
+        For the residue-specific components. Currently only supports residue-specific CSA variations.
+        """
         if not self.bOptInitialised:
             _BAIL("perform_fit","You must first run parse_optimisation_params to tell the script what to optimise.")
-        from scipy.optimize import fmin_powell      
+            
+        xInit = self.optimisation_loop_get_globals()
+        bDoGlobalOpt=True if len(xInit)>0 else False
+        if bDoGlobalOpt and not self.bDoLocalOpt:
+            # = = = Global round only.
+            self.optimisation_loop_do_global_step()
+            self.bOptCompleted=True
+            return self.chisq
+        elif self.bDoLocalOpt and not bDoGlobalOpt:
+            # = = = First check if CSA is an array?
+            csa = self.get_first_csa()
+            if not type(csa) is np.ndarray:
+                _BAIL("perform_optimisation","CSA values are not an array for local optimisation!")
+            
+            self.eval_all()
+            self.optimisation_loop_do_local_step()
+            self.bOptCompleted=True
+            self.chisq = self.calc_chisq()
+            return self.chisq            
+        elif bDoGlobalOpt and self.bDoLocalOpt:
+            # = = = First check if CSA is an array?
+            csa = self.get_first_csa()
+            if not type(csa) is np.ndarray:
+                _BAIL("perform_optimisation","CSA values are not an array for local optimisation!")
+
+            # = = = Perform mixed Global/local rounds.
+            bFirst=True
+            for n in range(maxCycles):
+                # = = Global step
+                paramPrev=self.optimisation_loop_get_globals()
+                self.optimisation_loop_do_global_step()
+                paramNow=self.optimisation_loop_get_globals()
+                if not bFirst and np.allclose(paramPrev,paramNow, rtol=tol):
+                    self.bOptCompleted=True
+                    break
+                # = = Local step
+                csaPrev=self.get_first_csa()
+                self.optimisation_loop_do_local_step()
+                csaNow=self.get_first_csa()
+                if not bFirst and np.allclose(csaPrev,csaNow, rtol=tol):
+                    # = = = Get final round predictions for all, for the tiny, tiny changes.
+                    self.chisq = self.calc_chisq()
+                    self.bOptCompleted=True
+                    break
+                # = = Housekeeping.
+                if bFirst:
+                    bFirst=False
+            return self.chisq
+        else:
+            _BAIL("perform_optimisation", "neither global or local optimisation have been successfully specified!")
+            
+    def optimisation_loop_do_global_step(self):
         fminOut = fmin_powell(optimisation_loop_inner_function,
                               x0=self.optimisation_loop_get_globals(),
                               direc=self.optimisation_loop_get_direc(),
@@ -1174,9 +1359,21 @@ class spinRelaxationExperiments:
         #out = fmin_powell(optfunc_R1R2NOE_Diso, x0=DisoOpt, direc=[0.1*DisoOpt], args=(...), full_output=True )       
         print( "= = = Optimisation complete over variables: %s" % self.optimisation_loop_get_param_names() )
         print( fminOut )
-        self.bOptCompleted=True
-        self.chisq = fminOut[1]
+        self.chisq = fminOut[1]            
         
+    def optimisation_loop_do_local_step(self):
+        """
+        Currently only supports residue-specific CSA variations.
+        """
+        for i in range(self.localCtModels.nModels):
+            nExpts = len(self.mapExptCoverage[i])
+            if nExpts>0:
+                fminOut = fmin_powell(optimisation_loop_rsCSA_inner_function,
+                              x0=self.get_first_csa(ind=i),
+                              direc=[spinRelaxationExperiments.dictStepSizes['rsCSA']],
+                              args=( self, i, self.mapExptCoverage[i] ),
+                              full_output=False)            
+                    
     def optimisation_loop_get_param_names(self):
         return self.listUpdateVariables
     
@@ -1200,18 +1397,21 @@ class spinRelaxationExperiments:
             
     def optimisation_loop_set_globals(self, vNew):
         for func, v in zip(self.listSetFunctions, vNew):
-            func(v)
-        
+            func(v)            
+            
     def calc_chisq(self):
         chisq=0.0
         for i, sp in enumerate(self.spinrelax):
             chisq += sp.calc_chisq( self.data[i]['y'], self.data[i]['dy'], self.mapModelNames[i] )
-        return chisq/self.num
-    #    self.eval_all()
-    #    chiSq=0.0
-    #    for i, sp in enumerate(self.spinrelax):
-    #        self.data[i]['y'] - sp.values[self.mapModelNames[i]]
+        return chisq/self.numExpts
 
+    #def calc_chisq_one(self, ind):
+    #    chisq=0.0
+    #    self.mapModelNames[i]
+    #    for i, sp in enumerate(self.spinrelax):
+    #       chisq += sp.calc_chisq( self.data[i]['y'], self.data[i]['dy'], self.mapModelNames[i] )
+    #    return chisq/self.numExpts
+        
 def optimisation_loop_inner_function(params, *args):
     objExpts=args[0]
     objExpts.optimisation_loop_set_globals(params)
@@ -1219,7 +1419,26 @@ def optimisation_loop_inner_function(params, *args):
     chisq = objExpts.calc_chisq()
     print("    ....optimisation step. Params: %s chisq: %g" % (params, chisq) )
     return chisq
-    
+
+def optimisation_loop_rsCSA_inner_function(params, *args):
+    objExpts=args[0]
+    ind=args[1]
+    listCalcs=args[2]
+    objExpts.set_all_csa(params[0], ind=ind)
+    chisq=0.0
+    for exptID, peakID in listCalcs:
+        sp = objExpts.spinrelax[exptID] ; target = objExpts.data[exptID]
+        v  = sp.eval(ind=ind)
+        t  = target['y'][peakID]        
+        dv = sp.errors[ind] if not sp.errors is None else 0.0
+        dt = target['dy'][peakID] if not target['dy'] is None else 0.0
+        w  = dv**2+dt**2
+        if w == 0:
+            w=1
+        chisq+=(v-t)**2/w
+        
+    return chisq/len(listCalcs)
+
 # = = = = Old spin relaxation class below = = =
 class diffusionModel:
     """
@@ -1330,7 +1549,6 @@ class diffusionModel:
     def calc_Jomega(self, omega, autoCorr):
         # = = = The parent class does not apply any global diffusion.
         return J_direct_transform(omega, autoCorr)
-
 
 class relaxationModel:
     """
@@ -1597,6 +1815,12 @@ def _BAIL( functionName, message ):
     print( "= = ERROR in function %s : %s" % ( functionName, message), file=sys.stderr )
     sys.exit(1)    
 
+def _WARN( functionName, message ):
+    """
+    Universal warning mode message.
+    """
+    print( "= = WARNING in function %s : %s" % ( functionName, message), file=sys.stderr )
+    
 def _return_time_fact(tu):
     if tu=='ps':
         return 1.0e-12

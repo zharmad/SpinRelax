@@ -9,6 +9,10 @@ def list_identical(u,v):
             return False
     return True
 
+def list_overlap_fraction(u,v):
+    u=set(u);v=set(v)
+    return len(u&v)/len(u|v)
+
 def list_get_map(lSource, lTarget, bValue=False):
     """
     Mapping from listA to listB, where elements are identical.
