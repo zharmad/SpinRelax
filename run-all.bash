@@ -106,6 +106,7 @@ num_chunks=4
 #Bfields="400.133 500.133 600.133 700.133 800.133"
 Bfields=600.133
 zetaStr=""
+csaStr=""
 bGenTraj=False ; bGenTrajDefault=False
 gentrj_default="$script_loc/center-solute-gromacs.bash"
 bGenRef=False ; bGenRefDefault=False
@@ -142,7 +143,13 @@ NB:
   -pfile <filename> : Specify custom filename/location for PLUMED quaternion script. (Default: $pfile)
   -refpdb <filename> : Specify custom filename/location for reference coordinate used by PLUMED and Python-MDTraj. (Default: $refpdb)
   -vecstorage <string> : Specify how the vector distributions is stored for anisotropic relaxation calculations Histogram|PhiTheta|TextPhiTheta (Default: $vecStorage)
-  -expfile <filename> : Specify custom filename/location for experimental R1/R2/NOE. (Default: $expfn)
+  -expfiles <filename> : Specific a list of NMR spin relaxation experiment files as the argument. (Default: $expfn)
+        NB: Each file should contain at least three/four header lines specifying its type and condition, in any order:
+        # Type NOE
+        # Frequency 700.313
+        # NucleiA 15N
+        # NucleiB 1H
+        <data>
   -sxtc <filename> : Specify custom filename/location for simulation trajectory used by PLUMED. (Default: $sxtc)
   -xtc_step <N ps> : Explicitly give the time period between successive frames. Otherwise GROMACS will be used to attempt to determine this.
   -genref [\"complete BASH command\"] : Generate solute reference within the script. Optionally replace the default command by giving a complete BASH command as an argument, enclosed in double-quotes \"gmx ... \"
@@ -157,13 +164,17 @@ NB:
   -Temp_MD <Kelvin> : Simulation temperature for Diso correction to experimental conditions. (Default: $T_md K)
   -Temp_Exp <Kelvin> : Experimental temperature for Diso correction to experimental conditions. (Default: $T_exp K)
   -D2O_Exp <decimal> : D2O concentration for Diso correction to experimental conditions. (Default: $c_D2O)
-  -Bfields <MHz> [MHz] ... :  A list of Magnetic field strengths to calculation relaxation parameters for. Accepts a time unit argument (Default: $Bfields)
+  -Bfields <MHz> [MHz] ... :  A list of Magnetic field strengths to calculation theoretical relaxation. Accepts a time unit argument (Default: $Bfields)
+        NB: This is no longer used to fit an experimental file.
   -fitatoms: Input a custom atom-selection to the python script calculating C(t) in the local frame.
         NB: Please enclose selection in quotation marks. (Default: \"name CA and occupancy > 0\")
-  -fit : Conduct fitting to optimise Diso and/or S2 & CSA. Will take some time. Takes as options any of the following:
-        Diso, DisoS2, DisoCSA
-  -zeta : Add adjustment to S2. (Default: none)
-  -Jw : Report the spectral densities as well, for each vector.
+  -fit : Conduct fitting to optimise Diso and/or S2 & CSA. Will take some time. Takes as options any combination of the following:
+        Diso, Daniso, zeta, CSA, rsCSA.
+        Multi-optimisations should be given as comma-separated lists: e.g., Diso,rsCSA
+        The last option rsCSA switches on residue-specific CSA optimisation, which should be conducted against multiple experimental data.
+  -zeta : Adds QM zero-point vibrations to the spin relaxation computations. (Default: none)
+  -csafile <filename> : Specifies a chemical-shift anisotropy file for use in spin relaxation computations.
+  -Jw : Report the spectral densities as well, for each vector. [Will be deprecated.]
   = = External options = =
   -D_ext <Diso> [anisotropy] [rhombicity] : Replace simulation global rotational diffusion with input values, in units of ps^-1. (Default: $Diso_ext $Dani_ext)
         NB: Rhombicity is currently ignored.
@@ -220,17 +231,33 @@ NB:
                 Bfields="$Bfields $2" ; shift
             done
             echo "= = Calculating at the following magnetic fields: $Bfields [MHz]"
+            echo "    ...NOTE: This will be ignored when experimental files have been given!"
             ;;
         -fitatoms)
             fittxtstr="--fitsel \"$2\"" ; shift ;;
         -fit) bDoFits=True ; fitlist=""
+            echo "= = NOTE: The arugment formmating for fitting stlyes have changed. Please consult calculate-relaxations-multi-field.py for details."
             while [[ ${2:0:1} != "-" ]] && [[ "$2" != "" ]] ; do
                 fitlist="$fitlist $2" ; shift
             done
             ;;
         -zeta) zetaStr="--zeta $2" ; shift ;;
-        -expfile) expfn=$2 ; shift ;;
-        -Jw)  bDoJw=True ;;
+        -csafile)
+            csaStr="--csa $2" ; shift
+            ;;
+        -expfile|-expfiles)
+            echo "= = NOTE: The formatting of experimental files have changed to include conditions of the measurements inside such as frequencies and nuclei."
+            echo "          Please consult the readme file or help for calculate-relaxations-multi-field.py for details."
+            expfn=""
+            while [[ ${2:0:1} != "-" ]] && [[ "$2" != "" ]] ; do
+                expfn="$expfn $2" ; shift
+            done
+            shift
+            ;;
+        -Jw)
+            bDoJw=True 
+            echo "= = WARNING: This argument has been deprecated in the workflow. Please consult calculate-relaxations-from-Ct.py for manual computation."
+            ;;
         *)
             echo "= = ERROR: Unrecognised argument: $1"
             exit -1
@@ -466,6 +493,15 @@ else
     echo " = = = Note: Pre-existing fitted-Ct file found, skipping derivations."
 fi
 
+echo "= = (Part 3B): Plot the fitted auto-correlations using matplotlib..."
+if [ ! -e {$outpref}_fittedCt.pdf ] ; then
+    $pycmd \
+        $script_loc/plot-fittedCt-values.py \
+        -f ${outpref}_fittedCt.dat \
+        -o ${outpref}_fittedCt.pdf
+fi
+
+
 echo
 echo "= Step 4: Computing relaxations for B: $Bfields ..."
 for Bfield in $Bfields ; do
@@ -476,7 +512,7 @@ for Bfield in $Bfields ; do
             -o ${outpref}-$of \
             --distfn $vecDistFile \
             -F ${Bfield}e6 \
-            --tu ps $zetaStr \
+            --tu ps $zetaStr $csaStr \
             --D "$Diso $Dani"
     else
         echo " = = = Note: R1/R2/NOE-calculations at $Bfield has already been done. Skipping."
@@ -494,21 +530,16 @@ for Bfield in $Bfields ; do
             echo " = = = Note: Jw-calculations at $Bfield has already been done. Skipping."
         fi
     fi
-    if [[ "$bDoFits" == "True" ]] ; then
-      for optmode in $fitlist ; do
-        if [ "$bForce" == "True" ] || [ ! -e ${outpref}-${of}-opt${optmode}_R2.dat ] ; then
-            $pycmd $script_loc/calculate-relaxations-from-Ct.py \
-                -f ${outpref}_fittedCt.dat \
-                -o ${outpref}-$of-opt${optmode} \
-                --distfn $vecDistFile \
-                -F ${Bfield}e6 \
-                --tu ps $zetaStr \
-                --D "$Diso $Dani" \
-                --expfn $expfn \
-                --opt $optmode
-        else
-            echo " = = = Note: Fit $optmode-calculations at $Bfield has already been done. Skipping."
-        fi
-      done
-    fi
 done
+
+if [[ "$bDoFits" == "True" ]] ; then
+  for optmode in $fitlist ; do
+    $pycmd $script_loc/calculate-relaxations-multi-field.py \
+        -f ${outpref}_fittedCt.dat \
+        -o ${outpref}-opt${optmode} \
+        --distfn $vecDistFile \
+        $zetaStr $csaStr \
+        -D $Diso --aniso $Dani \
+        --opt $optmode $expfn
+  done
+fi

@@ -945,12 +945,12 @@ class spinRelaxationExperiments:
         2 0.9 0.03
         ...
         """
-        strType=None ; nucleiA=None; nucleiB=None; freq=None
+        strType=None ; nucleiA=None; nucleiB=None; freq=None ; freqUnit='MHz'
         names=[] ; values=[] ; errors=[]
         for line in open(fileName,'r'):
-            if len(line) == 0:
+            l = line.split()
+            if len(l) == 0:
                 continue
-            l = line.split()                
             if line[0] == '#' or line[0] == '@':
                 # = = = HEADER section
                 if l[1] == 'Type':
@@ -961,6 +961,8 @@ class spinRelaxationExperiments:
                     nucleiB=l[2]
                 elif l[1] == 'Frequency':
                     freq=float(l[2])
+                elif l[1] == 'FrequencyUnit':
+                    freqUnit=l[2]
                 continue
             # = = = Data section.
             if bIgnoreErrors:
@@ -976,10 +978,15 @@ class spinRelaxationExperiments:
             else:
                 errors.append(None)
 
+        # = = = Set a default nucleiB if the experiment type is not hetNOE
+        if nucleiB is None and (strType == 'R1' or strType == 'R2'):
+            nucleiB = '1H'
         # = = Sanity Checks
         if strType is None or nucleiA is None or nucleiB is None or freq is None:
             print("ERROR in spinRelaxationExperiments.add_experiment(): not all metadata has been read! "
                   "Require: Type, NucleiA, NucleiB, Frequency", file=sys.stderr)
+            print( strType, nucleiA, nucleiB, freq )
+            sys.exit(1)
             return
         names=np.array(names)
         values=np.array(values, dtype=float)
@@ -991,7 +998,7 @@ class spinRelaxationExperiments:
             print("number of values with uncertainties: %i of %i" % (nErrors, len(errors)), file=sys.stderr)
             sys.exit(1)
         
-        wObj = angularFrequencies(nucleiA=nucleiA, nucleiB=nucleiB, fieldStrength=freq, fieldUnit='MHz')
+        wObj = angularFrequencies(nucleiA=nucleiA, nucleiB=nucleiB, fieldStrength=freq, fieldUnit=freqUnit)
         if strType=='R1':
             obj = spinRelaxationR1(strType, angFreq=wObj, globalRotDif=self.globalRotDif, localCtModels=self.localCtModels)
         elif strType=='R2':

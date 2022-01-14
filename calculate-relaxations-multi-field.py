@@ -59,7 +59,7 @@ if __name__ == '__main__':
                         help='Read a formatted file with fitted C_internal(t), taking from it the parameters.')                       
     parser.add_argument('--refpdb', type=str, dest='refPDBFile', default=None,
                         help='Reference PDB file to compute axisymmetric rotational diffusion using X-H bond vectors wound within. '
-                             'This assumes that the PDB file is already inthe principal-axis frame aligned with the diffusion tensor.')
+                             'This assumes that the PDB file is already in the principal-axis frame aligned with the diffusion tensor.')
     parser.add_argument('--distfn', type=str, dest='distfn', default=None,
                         help='Vector orientation distribution of the X-H dipole in spherical-polar coordinates. '
                              'This is used to compute axisymmetric rotational diffusion and overrules '
@@ -71,21 +71,24 @@ if __name__ == '__main__':
     parser.add_argument('--tau', type=float, dest='tau', default=None,
                         help='Isotropic relaxation time constant. Overwritten by Diffusion tensor values when given.')
     parser.add_argument('--aniso', type=float, dest='aniso', default=None,
-                        help='Diffusion anisotropy (prolate/oblate). Overwritten by Diffusion tensor values when given.')
+                        help='Diffusion anisotropy (prolate/oblate). Overwritten by Diffusion tensor values when Dpar and Dperp values are given.')
     parser.add_argument('-D', '--DTensor', type=str, dest='D', default=None,
-                        help='The Diffusion tensor, given as Diso, Daniso, Drhomb. Entries are either comma-separated or space separated in a quote. '
-                             'Note: In axisymmetric forms, when Daniso < 1 the unique axis is considered to point along x, and'
+                        help='The Diffusion tensor. Single values are parsed as isotropic component. '
+                             'Two values are parsed as  Dpar,Dperp. '
+                             'Three values are directly parsed as the diffusion tensor, although this is not currently accepted. '
+                             'Entries are either comma-separated or space separated in a quote.\n'
+                             'Note: In axisymmetric forms, when Daniso < 1 the unique axis is considered to point along x, and '
                              'when Daniso > 1 the unique axis is considered to point along z.')
     parser.add_argument('--zeta', type=float, default=0.890023,
-                        help='Input optional manual zeta factor to scale-down'
-                             'the S^2 of MD-based derivations by zero-point vibrations known in QM.'
+                        help='Input optional manual zeta factor to scale-down '
+                             'the S^2 of MD-based derivations by zero-point vibrations known in QM. '
                              'This is by convention 0.890023 (1.02/1.04)^6 - see Trbovic et al., Proteins, 2008 and Case, J Biomol NMR, 1999.')
     parser.add_argument('--csa', type=str, default=None,
-                        help='Input manual average CSA value, if different from the assumed value, e.g. -170 ppm for 15N.'
+                        help='Input manual average CSA value, if different from the assumed value, e.g. -170 ppm for 15N. '
                              'Residue-specific variations is set if a file name is given. This file should '
                              'specify on each line the residue index and then its respective CSA value.')
     parser.add_argument('--opt', '--fit', type=str, dest='listOptParams', default=None,
-                        help='Perform optimisation using all laoded experiments, over possible parameters %s:\n'
+                        help='Perform optimisation against all given experimental data, over the following possible parameters %s:\n'
                              '  - Diso, isotropic tumbling rate of the domain,\n'
                              '  - Daniso, axisymmetric tumbling anisotropy,\n'
                              '  - zeta, QM zero-point vibration contribution to local autocorrelation,\n'
@@ -95,9 +98,9 @@ if __name__ == '__main__':
                              'The order given will be the order used inthe optimisation loop\n' \
                              % (sd.spinRelaxationExperiments.listAllowedOptimisationVariables) )
     parser.add_argument('--cycles', type=int, default=10,
-                        help='For the new per-residue CSA fitting algorithm, do a maximum of N cycles between the global Diso versus the local CSA fits. '
-                             'Each cycle begins by optimising Diso over all residues, then optimising each CSA separately against the new global value. '
-                             'An additional convergence graph will be created.')
+                        help='For the residue-specific CSA fitting algorithm, do a maximum of N cycles between the global Diso versus the local CSA fits. '
+                             'Each cycle begins by optimising Diso over all residues, then optimising each CSA separately against the new global value.\n'
+                             'Adjust in case algorithm fails to find convergence within 2 cycles.')
     parser.add_argument('--tol', type=float, default=1e-6,
                         help='The tolerance criteria for terminating the global/local optimisation cycles early, as a fractional change.')
 

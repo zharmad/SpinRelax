@@ -1,6 +1,10 @@
 import numpy as np
 import sys
 
+def invert(y,dy):
+    t=1.0/y
+    return t, dy*t
+
 def list_identical(u,v):
     if len(u) != len(v):
         return False

@@ -4,10 +4,12 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 
 # Change Log and Expected To-Do list
 
+- [x] v0.3  - Fitting to an arbitrary set of spin-relaxation experiments.
+              Inclusion of diffusion anistropy based on a single structure instead of a trajectory.
 - [x] v0.22 - Residue-specific CSA fittings for one set of R1R2NOE.
 - [x] v0.21 - Initial groundwork on residue-specific CSA fittings.
-- [x] v0.2 - Port to Python3. Initial work complete with basic validation checks.
-- [x] v0.1 - Initial upload of the dirty version using a mixture of bash, python, PLUMED2, and optionally GROMACS.
+- [x] v0.2  - Port to Python3. Initial work complete with basic validation checks.
+- [x] v0.1  - Initial upload of the dirty version using a mixture of bash, python, PLUMED2, and optionally GROMACS.
 *(NB: you'll probably have to bug me about individual ticket items.)*
 - [ ] Support for eulerian-angle input instead of `-q_ext`.
 - [ ] Confirm support for NAMD Quaternion colvars.
@@ -15,9 +17,9 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 - [ ] Make a module to contain the header python scripts.
 - [ ] First Refactor code to simplify workflow stages, such as moving bash processing to within respective python scripts.
 
-## Workflow changes in October 2021.
+## Workflow changes as of Jan 2022 over the past year:
 
-- Planned: Will alter syntax for experimetnal fitting of data.
+- Altered syntax for experimental fitting of data. Conditions such as magnetic fields are included with the epxeirmental data.
 - Changed syntax user QoL: center-solute-gromacs.bash 
 
 # General Information
@@ -35,8 +37,9 @@ Please examine the help documentation for most script by invoking "-h".
 the entire tumbling molecule(s) remains unbroken by PBC boundary conditions.
 The solute trajectory can then be read by our [PLUMED2 fork](https://github.com/zharmad/plumed2)
 that computes quaternion orientations.
-While the solute pre-processing can be done entirely within PLUMED2,
-it will not spot mistakes when, say, a dimer is suddenly split by the PBC into two components.
+While the solute pre-processing can be done entirely within PLUMED2 using **WHOLEMOLECULES**,
+the software will not account for edge-cases where, e.g., a dimer is suddenly split by the PBC
+into two components.
 Thus, far safer for you to verify independently that the trajectory is properly processed.
 
 Alternatively, the quaternion trajectory can be computed by other software
@@ -51,9 +54,11 @@ from [HYDROPRO](http://leonardo.inf.um.es/macromol/programs/hydropro/hydropro.ht
 skip the quaternion computation step if you are satisfied with structure-based
 predictions of global tumbling.
 
+A script **parse-hydroNMR-results.py** is available to help you incorporate this into the workflow.
+
 ## Installation
 
-Simply clone into your desired directory, and then run `check-installation.bash`.
+Simply clone into your desired directory, and then run check-installation.bash`.
 This will look at whether the shell can find the default arguments and environments required.
 Please modify as necessary for your setup - notably, `check-packages.py`
 will compile the C-based npufunc and check if the other python scripts can be accessed.
@@ -90,15 +95,19 @@ that string together all of the primary components:
     - KEY outputs: **rotdif-iso.dat** for isotropic D, **rotdif-aniso2.dat** for axisymmetric D, **rotdif-aniso_q.dat** for PAF rotations as a function of dt.
 5. python calculate-Ct-from-traj.py
     - This reads the solute trajectory to compute local autocorrelation functions, and bond vector distributions.
-    - It requires a quaternion rotation operatation if the reference PDB is not already in the principal axis frame.
-    - KEY output: **rotdif_Ctint.dat**
+    - It requires a quaternion rotation operatation if the reference PDB is not already in the principal axis frame,
+    - as the output vector distribution is by definition within the PAAF frame and aligned with the diffusion tensor.
+    - KEY output: **rotdif_Ctint.dat**, **rotdif_vecHistogram.npz**
 6. python calculate-fitted-Ct.py
     - This takes a set of autocorrelations and fits expeonential decay components.
     - KEY output: **rotdif_fittedCt.dat**
 7. python calculate-relaxations-from-Ct.py
     - This combines the global and local tumbling factors to prodcue an NMR prediction.
-    - Fits to experiments occur in this step.
+    - [ Deprecated ] Fits to experimental data occur in this step.
     - KEY outputs: **rotdif_R1.dat**,  **rotdif_R2.dat**, **rotdif_NOE.dat**
+8. python calculate-relaxations-multi-field.py
+    - This rewrite of (7) isused to fits predictions to an arbitrary set of experimental data.
+    - KEY outputs: **rotdif_<conditions>_<relaxation>.dat**
 
 The global script runs through each step of the process and checks for the
 existance of results from previous invocations.
@@ -134,7 +143,6 @@ Fitting to experiment is done at this stage.
 ```
 run-all.bash -Temp_MD 300 -Temp_Exp 297 -D2O_Exp 0.09 -Bfields 700.303
 ```
-
 This is a simple invocation case (and probably most dangerous),
 leaving the bash script to look for software/data
 and generate all necessary steps, while specifying that the global tumbling
@@ -146,7 +154,6 @@ and measured at a proton frequency of 700 MHz.
 ```
 run-all.bash -reffile ../ref-1ubq.pdb -Temp_Exp 297 -D2O_Exp 0.09 -D_ext 3.7383e-5 1.26006 -q_ext 0.866165 0.392069 -0.308123 -0.033159
 ```
-
 This is a more likely invocation, where the user may have computed the global tumbling
 from HYDRONMR or coarse-grained simulations, or have fitted experimental values from ROTDIF or TENSOR.
 An external reference file is supplied, containing the atoms corrresponding to the centered-solute trajectory
@@ -154,17 +161,28 @@ and occupancy of 1.0 to ask PLUMED to include this atom in the quaternion orient
 
 ## 3. *Fitting to experimental data*
 ```
-run-all.bash -reffile ../ref-1ubq.pdb -Temp_Exp 297 -D2O_Exp 0.09 -D_ext 3.7383e-5 1.26006 -q_ext 0.866165 0.392069 -0.308123 -0.033159 -expfile ./expt-R1R2NOE.dat -fit DisoS2
-```
+run-all.bash -reffile ../ref-1ubq.pdb -D_ext 3.7383e-5 1.26006 -fit Diso,rsCSA -csafile ./initial_CSA_estimates.dat -expfiles ./expt_R1.dat ./expt_R1.dat ./expt_NOE.dat
 
-Building up from the previous example, one adds the location of the experimental relaxation file,
-and attempts to tune D_iso and zeta-corrections in order to minimise the global chi-deviation.
+(NEW SYNTAX) Building up from the previous example, one now adds an list of spin relaxation experiments,
+as well as an (optional) list of residue-specific chemical-shift anisotropies.
+This particular case asks **calculate-relaxations-multi-field.py** to optimise over
+isotropic components of rotational diffusion, and residue-specific CSA.
+
+The CSA argument is given as a file containing two columns of residue-ID followed by residue-specific initial guesses.
+Note that the fitting scripts also accept a aingle average valuee as input, and it otherwise defulat to literature values (-170 ppm for 15N.)
+
+To help you set up experimental inputs, please try out **parse-relaxations-from-BMRB-entry.py** with a known spin-relaxation dataset.
+E.g., entry 26845 corresponds to Le Masters(2016) and gives R1 and R2 over four spectrometer fields.
+The headers of the output is what is required for the input here.
+
+Additional arguments in (2) such as q_ext are not included here; the workflow will
+take pre-existing vector distributions file **rotdif_vecHistogram.npz**, which is
+defined within the principal-axis frame.
 
 ## 4. *Starting from other programs with a known quaternion trajectory already computed*
 ```
 run-all.bash -reffile reference.pdb -qfile colvar-qorient -sxtc solute-centered.dcd
 ```
-
 This is a likely starting point for users who possess NAMD trajectories, which will
 direct the workflow to skip the initial three steps that are dependent on GROMACS/PLUMED.
 The MDTraj plugin should natively recognise common TRAJECTORY files.
@@ -201,16 +219,6 @@ Note that the argument -num_chunks will be needed to make sensible error estimat
 of the global rotational diffusion: since the error is made by standard deviation over N-subtrajectories,
 then it makes no sense to divide a single trjaectory across two chunks. I.e., Have to factorise.
 
-
 Note that `-t_mem 50 ns sets the **memory time** to 50 ns. This is an subtle but important
 idea in NMR, where the MD timescales hidden by global tumbling should be excluded
 in the analysis.
-
-
-## 6. [WIP] Residue-specific chemical-shift anisotropy fitting.
-
-After everything is setup, alter the fitting strategy to "new" and rerun the final python fitting scripts. Here is an example run line:
-```
-python <SpinRelax>/calculate-relaxations-from-Ct.py -f ./rotdif-10ns_fittedCt.dat --distfn rotdif-10ns_vecHistogram.npz -e ./expt/R1R2NOE_600.dat -F 600.133e6 --opt new -D "5e-5 1.4" --csa ./expt/test-CSA-input.dat -o ./temp
-```
-The CSA argument is given as a file here, containing two columns of residue-ID followed by residue-specific initial guesses. This is not necessary, as the argument also accepta a custom value or the default -170 ppm for N. The fitted values will then be contained in a separate file <prefix>_CSA_values.dat
