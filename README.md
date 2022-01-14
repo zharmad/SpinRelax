@@ -19,7 +19,7 @@ A workflow to compute NMR spin-relaxation parameters based on molecular dynamics
 
 ## Workflow changes as of Jan 2022 over the past year:
 
-- Altered syntax for experimental fitting of data. Conditions such as magnetic fields are included with the epxeirmental data.
+- Altered syntax for experimental fitting of data. Conditions such as magnetic fields are included with the expeirmental data.
 - Changed syntax user QoL: center-solute-gromacs.bash 
 
 # General Information
@@ -58,7 +58,7 @@ A script **parse-hydroNMR-results.py** is available to help you incorporate this
 
 ## Installation
 
-Simply clone into your desired directory, and then run check-installation.bash`.
+Simply clone into your desired directory, and then run `check-installation.bash`.
 This will look at whether the shell can find the default arguments and environments required.
 Please modify as necessary for your setup - notably, `check-packages.py`
 will compile the C-based npufunc and check if the other python scripts can be accessed.
@@ -162,7 +162,7 @@ and occupancy of 1.0 to ask PLUMED to include this atom in the quaternion orient
 ## 3. *Fitting to experimental data*
 ```
 run-all.bash -reffile ../ref-1ubq.pdb -D_ext 3.7383e-5 1.26006 -fit Diso,rsCSA -csafile ./initial_CSA_estimates.dat -expfiles ./expt_R1.dat ./expt_R1.dat ./expt_NOE.dat
-
+```
 (NEW SYNTAX) Building up from the previous example, one now adds an list of spin relaxation experiments,
 as well as an (optional) list of residue-specific chemical-shift anisotropies.
 This particular case asks **calculate-relaxations-multi-field.py** to optimise over
