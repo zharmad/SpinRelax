@@ -5,8 +5,8 @@ import sys, os, argparse, time
 import numpy as np
 #from scipy.optimize import curve_fit
 from scipy.optimize import fmin_powell
-import transforms3d.quaternions as quat
-from   transforms3d_supplement import *
+import transforms3d.quaternions as qops
+import transforms3d_supplement as qs
 import plumedcolvario as pl
 import general_scripts as gs
 import dxio
@@ -71,17 +71,22 @@ def calculate_anisotropies( D, chunkD=[]):
     """
     Convert the cartesian elements of diagonalised diffusion tensor ( Dx<= Dy <= Dz ) into anisotropic elements.   
     Also compute uncertainties based on sub-dividing the total trajectory into N chunks, if the sub-sections are given.
+
+    Note that D always exerts its given value and rank order, chunkD is used to compute uncertainties only.
     """
     if len(chunkD)==0:
         D_sorted = np.sort(D)
         return calculate_aniso_nosort(D_sorted)
     else:
-        # Do some set magic
-        block=np.concatenate( (np.reshape(D,(1,3)),chunkD) ).T
-        block=block[block[:,0].argsort()]
-        # calculate values from sub-chunks
-        chunkdat=np.array( [ calculate_aniso_nosort( block[:,i]) for i in range(len(chunkD)+1)] )
-        out=[ ( chunkdat[0,i],np.std(chunkdat[1:,i]) ) for i in range(5) ]
+        # = = = Obtain rank order of D and apply to chunks.
+        iSorted=np.argsort(D)
+        # = = = Get anisotropics for each chunk.
+        val     = calculate_aniso_nosort( D[iSorted] )
+        samples = np.array([ calculate_aniso_nosort(x[iSorted]) for x in chunkD ])
+        errors  = np.std( samples, axis=0)
+        out = []
+        for i in range(len(val)):
+            out.append( (val[i], errors[i]) )
         # Output format [ (iso, isoErr), (aniL, aniLErr), (rhomL, rhomLErr), ... ]
         return out
 
@@ -90,7 +95,7 @@ def obtain_v_dqs(ndat, delta, q):
     for i in range(ndat):
         j=i+delta
         #Since everything is squared does quat_reduce matter? ...no, but do so anyway.
-        dq=quat_reduce(quat.qmult( quat.qinverse(q[i]), q[j]))
+        dq=qs.quat_reduce(quat.qmult( quat.qinverse(q[i]), q[j]))
         out[i]=dq[1:4]
     return out
 
@@ -101,26 +106,24 @@ def obtain_self_dq(q, delta):
     """
     #print( q.shape, delta )
     #return qs.vecnorm_NDarray( qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) ) )
-    return quat_reduce_simd( quat_mult_simd( quat_invert(q[:-delta]), q[delta:]) )
+    return qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) )
 
 def average_LegendreP1quat(ndat, vq):
-    out=0.0
-    for i in range(ndat):
-        out+=LegendreP1_quat(vq[i])
-    return out/ndat
+    return np.mean( np.apply_along_axis( LegendreP1_quat, arr=vq, axis=0), axis=0  )
+    #out=0.0
+    #for i in range(ndat):
+    #    out+=LegendreP1_quat(vq[i])
+    #return out/ndat
 
 def average_anisotropic_tensor(ndat, vq, qframe=(1,0,0,0)):
-    out=np.zeros((3,3))
+    """
+    The input vector vq has shape (ndat, 3), and we require the np.outer operation.
+    This np.outer operation is replaced by an einstein summation shep to speed up calculations.
+    """
     # Check if there is no rotation.
-    if qops.nearly_equivalent(qframe,(1,0,0,0)):
-        for i in range(ndat):
-            out+=np.outer(vq[i],vq[i])
-    else:
-        for i in range(ndat):
-            vrot=qops.rotate_vector(vq[i],qframe)
-            out+=np.outer(vrot,vrot)
-    out/=ndat
-    return out
+    if not qops.nearly_equivalent(qframe,(1,0,0,0)):
+        vq = qs.rotate_vector_simd( vq, qframe, axis=-1)
+    return np.mean( np.einsum('ij,ik->ijk', vq, vq), axis=0 )
 
 def average_LegendreP1quat_chunk(ndat, vq, nchunk):
     nblock=int(ceil(1.0*ndat/nchunk))
@@ -200,8 +203,8 @@ def conduct_exponential_fit(xlist, ylist, C0, C1):
     guess=obtain_exponential_guess(xguess, yguess, C1)
     print( '= = = guessed initial tau: ', guess )
     fitOut = fmin_powell(powell_expdecay, guess, args=(xlist, ylist, C0, C1), full_output=True)
-    print( '= = = = Tau obtained: ', fitOut[0] )
-    return fitOut[0]
+    print( '= = = = Tau obtained: ', fitOut[0][0] )
+    return fitOut[0][0]
 
 def get_flex_bounds(x, samples, nsig=1):
     """
@@ -578,7 +581,7 @@ if __name__ == '__main__':
                 debug_orthogonality(moi_axes)
 
             #rotations to change REF frame into MoI frame
-            q_rot=quat_frame_transform_min(moi_axes)
+            q_rot=qs.quat_frame_transform_min(moi_axes)
             #Store first quaternion for subsequent data points
             if bFirst:
                 bFirst=False
@@ -685,17 +688,18 @@ if __name__ == '__main__':
         #Model 2 where the frame is rotated to match a particular PAF frame.
         print( "= = = Running exponential fitting of fully anisotropic D..." )
         taus=np.array([ conduct_exponential_fit(out_dtlist,out_aniso2list[i], 0.5, 0.5) for i in range(3) ])
-        models=build_model_curves(anisotropic_decay_noc, taus, out_dtlist)
+        models=anisotropic_decay_noc(out_dtlist, taus.reshape( (3,1)) )
+        print( "    ...debug broadcasting check (tau/dt/models):", taus.shape, out_dtlist.shape, models.shape)
         #print_model_fits_aniso(out_pref+"-aniso2.dat",
         #                 out_dtlist, out_aniso2list, models, taus)
         if bDoSubchunk:
             print( "= = = Running exponential fitting over sub-chunks as well for uncertainty analysis..." )
-            chtaus=[[ conduct_exponential_fit(out_dtlist, chunk_aniso2list[i][j], 0.5, 0.5)
-                   for j in range(3) ]
-                   for i in range(num_chunk) ]
-            chtaus=np.array(chtaus)
-            chmodels=[ build_model_curves(anisotropic_decay_noc, chtaus[i], out_dtlist) 
-                       for i in range(num_chunk) ]
+            chmodels=np.zeros( (num_chunk,3,len(out_dtlist)) )
+            chtaus  =np.zeros( (num_chunk,3) )
+            for i in range(num_chunk):
+                for j in range(3):
+                    chtaus[i,j] = conduct_exponential_fit(out_dtlist, chunk_aniso2list[i][j], 0.5, 0.5)
+                chmodels[i] = anisotropic_decay_noc( out_dtlist, chtaus[i].reshape((3,1)) )
             file_header=format_header('aniso_err', taus, chtaus)
             file_header.append( format_header_quat(q_frame) )
             printlist=[ np.concatenate((out_aniso2list, models)) ]

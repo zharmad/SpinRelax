@@ -437,9 +437,9 @@ if [[ "$Dani_ext" == "" ]] || [[ "$Diso_ext" == "" ]] ; then
     # If an external number is given, then assume that this is all accoutned for.
     # Use the fact that Dani<1 will inevitably means D_x becomes the unique axis.
     echo "= = Local symmtop rotational diffusion (@ expt conditions): $Diso_loc $Dani_loc"
-    [[ "$Diso_ext" != "" ]] && Diso=$Diso_ext || Diso=$Diso_loc
-    [[ "$Dani_ext" != "" ]] && Dani=$Dani_ext || Dani=$Dani_loc
 fi
+[[ "$Diso_ext" != "" ]] && Diso=$Diso_ext || Diso=$Diso_loc
+[[ "$Dani_ext" != "" ]] && Dani=$Dani_ext || Dani=$Dani_loc
 echo "= = Global Diffusion Tensors used: $Diso $Dani"
 
 echo

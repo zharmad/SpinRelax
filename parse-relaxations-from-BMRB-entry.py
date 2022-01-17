@@ -1,10 +1,26 @@
-import pynmrstar
+from pynmrstar import Entry
+from pynmrstar.saveframe import Saveframe
+from pynmrstar.loop import Loop
 import numpy as np
-import sys, argparase
+import sys, argparse
 """
 To take advantage of directing importing from BMRB entries, you will need to install the pynmrstar package
 e.g., pip install pynmrstar
+
+For documentation, please read:
+- Module: https://pynmrstar.readthedocs.io/en/latest/
+- Tags: https://bmrb.io/dictionary/tag.php
 """
+
+def loop_assert(loop, functionName):
+    if type(loop) == Saveframe:
+        print("= = WARNING: %s() was given a pynmrstar saveframe instead of a loop! Will take the last entry" % functionName, file=sys.stderr )
+        loop = loop[-1]
+    if type(loop) != Loop:
+        print("= = ERROR: %s() was not given a pynmrstar loop instance!" & functionName, file=sys.stderr)
+        return None
+    else:
+        return loop
 
 def is_column_identical(loop,ind):
     l=[ x[ind] for x in loop ]
@@ -14,12 +30,77 @@ def is_column_identical(loop,ind):
             return False
     return True
 
-def get_isotopes(loop,colPairs):
-    out=[]
-    for a,b in colPairs:
-        if not is_column_identical(loop,a) or not is_column_identical(loop,b):
+def get_col_tag_startswith(inp, strStart):
+    return [ i for i,tag in enumerate(inp.tags) if tag.startswith(strStart) ]
+
+def get_values_and_errors(loop):
+    loop = loop_assert(loop, 'get_values_and_errors')
+    name = loop.category
+    print("= = Retrieving values from loop %s" % loop.category)
+    try:
+        val = loop.get_tag('Val')
+        err = loop.get_tag('Val_err')
+    except:
+        print("= = ERROR. Either Val or Val_err tags not found in loop %s; now try to prepend loop name and search again." % loop.category, file=sys.stderr)
+        try:
+            # = = E.g. What if the values are named T2_val?
+            val = loop.get_tag('%s_val' % name.strip('_') )
+            err = loop.get_tag('%s_val_err' % name.strip('_') )
+        except:
+            print("= = ERROR. Appending loop names hasn't worked! Bailing." % loop.category, file=sys.stderr)
+            print(loop.tags, file=sys.stderr)
+            sys.exit(1)
+            
+    return val, err
+
+def get_isotopes(loop):
+    """
+    Given a text data loop, usually the very last one in the save frame, find and return the isotopes for naming.
+    Example output: [ '15N', '1H' ]
+    """
+    # = = = Catch random error in giving the saveFrame instead
+    loop = loop_assert(loop, 'get_isotopes')
+    # For entries like hetNOE, the tags will be duplicated with
+    colsElement    = get_col_tag_startswith(loop, 'Atom_type')
+    if np.any( [ loop[0][x] == '.' for x in colsElement] ):
+        # = = Entry is incomplete. Get name as backup.
+        print("= = WARNING: Entry does not contain Atom_type information. Using Atom_ID as backup.")
+        colsElement    = get_col_tag_startswith(loop, 'Atom_ID')
+
+    listElement = [ loop[0][x] for x in colsElement] 
+    #print( listElement )
+    for c in colsElement:
+        if not is_column_identical(loop,c):
+            print("= = ERROR in get isotopes(): the column entries for the isotopes are not identical!", file=sys.stderr) 
             return None
-        out.append( "%s%s" % (loop[0][a], loop[0][b]) )
+    
+    colsIsotopeNum = get_col_tag_startswith(loop,'Atom_isotope_number')
+    for c in colsIsotopeNum:
+        if not is_column_identical(loop,c):
+            print("= = ERROR in get isotopes(): the column entries for the isotopes are not identical!", file=sys.stderr) 
+            return None
+
+    listIsotopeNum = [ loop[0][x] for x in colsIsotopeNum ]
+    if np.any( np.array(listIsotopeNum) == '.' ):
+        # = = Entry is incomplete. Get IDs
+        print("= = WARNING: Entry does not contain Atom_isotope_number information. Will guess using atom type information.")
+        listIsotopeNum = []
+        for x in listElement:
+            if x == 'H':
+                listIsotopeNum.append('1')
+            elif x == 'C':
+                listIsotopeNum.append('13')
+            elif x == 'N':
+                listIsotopeNum.append('15')
+            elif x == 'O':
+                listIsotopeNum.append('17')
+            else:
+                print("= = ERROR: Atom types is not H C, N, or O. Will bail.", file=sys.stderr)
+                sys.exit(1)
+
+    out=[]
+    for a,b in zip(listIsotopeNum, listElement):
+        out.append( "%s%s" % (a, b) )
     return out
 
 if __name__ == '__main__':
@@ -37,13 +118,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
     outPrefix = args.outputPrefix
     inputFile = args.inputTextFile
-    inputID   = args.inputID
+    inputID   = args.BMRBEntry
     if not inputFile is None:
-        entry = pynmrstar.Entry.from_file(inputFile)
-    elif not inputIF is None:
-        entry = pynmrstar.Entry.from_database(inputID)
+        entry = Entry.from_file(inputFile)
+    elif not inputID is None:
+        entry = Entry.from_database(inputID)
     else:
-        print("= = ERROR: You must give either an BMRB entry or inptu file!", file=sys.stderr)
+        print("= = ERROR: You must give either an BMRB entry or input file!", file=sys.stderr)
+        parser.print_help()
         sys.exit(1)
 
     listInterestedCategories=['heteronucl_T1_relaxation','heteronucl_T2_relaxation','heteronucl_NOEs']
@@ -61,18 +143,23 @@ if __name__ == '__main__':
         print("    ...reading frame data")
         listIndex=listInterestedCategories.index(catSF)
         loopData=saveFrame[-1]
+        print("    ...loop data tags:", loopData.tags )
+        print("    ...loop data first entry:", loopData[0] )
         exptID = d['id']
         sampleCondID = d['sample_condition_list_id']
         freq = d['spectrometer_frequency_1h']
         typeExpt = listTypeExpt[listIndex]
         if not typeExpt == 'NOE':
             exptUnits = d[ listUnitsString[listIndex] ]
-            isotopes = get_isotopes(loopData, [(9,8)] )
+            isotopes = get_isotopes(loopData )
             nCols = 19
-            val = [ x[10] for x in loopData ]
-            err = [ x[11] for x in loopData ]
-            resid   = [ x[4] for x in loopData ]
-            resname = [ x[6] for x in loopData ]
+            #val = [ x[10] for x in loopData ]
+            #err = [ x[11] for x in loopData ]
+            val,err = get_values_and_errors( loopData )
+            #resid   = [ x[4] for x in loopData ]
+            #resname = [ x[6] for x in loopData ]
+            resid   = loopData.get_tag('Comp_index_ID')
+            resname = loopData.get_tag('Comp_ID')
     
             if exptUnits == 's':
                 tmp = [ 1./float(x) for x in val ]
@@ -81,14 +168,25 @@ if __name__ == '__main__':
                 del tmp
         else:
             exptUnits = ''
-            isotopes = get_isotopes(loopData, [(9,8),(18,17)] )
+            isotopes = get_isotopes(loopData )
+            # = = = Change the convention so that the second nuclei is 1H
+            if isotopes[0] == '1H':
+                isotopes[0] = isotopes[1]
+                isotopes[1] = '1H'
             nCols = 33
-            val = [ x[19] for x in loopData ]
-            err = [ x[20] for x in loopData ]
-            resid    = [ x[4] for x in loopData ]
-            resname  = [ x[6] for x in loopData ]
-            residB   = [ x[13] for x in loopData ]
-            resnameB = [ x[15] for x in loopData ]
+            val,err = get_values_and_errors( loopData )
+            #val = [ x[19] for x in loopData ]
+            #err = [ x[20] for x in loopData ]
+            tagsResID   = [ t for t in loopData.tags if t.startswith('Comp_index_ID') ]
+            tagsResName = [ t for t in loopData.tags if t.startswith('Comp_ID') ]
+            resid    = loopData.get_tag(tagsResID[0])
+            resname  = loopData.get_tag(tagsResName[0])
+            residB   = loopData.get_tag(tagsResID[1])
+            resnameB = loopData.get_tag(tagsResName[1])
+            #resid    = [ x[4] for x in loopData ]
+            #resname  = [ x[6] for x in loopData ]
+            #residB   = [ x[13] for x in loopData ]
+            #resnameB = [ x[15] for x in loopData ]
         count+=1
         # = = = Avoid assuming that tere are three loops for now, and loop through them all searching for the expected frame
     

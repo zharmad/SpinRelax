@@ -98,10 +98,11 @@ def obtain_self_dq(q, delta):
     return qs.quat_reduce_simd( qs.quat_mult_simd( qs.quat_invert(q[:-delta]), q[delta:]) )
 
 def average_LegendreP1quat(ndat, vq):
-    out=0.0
-    for i in range(ndat):
-        out+=LegendreP1_quat(vq[i])
-    return out/ndat
+    return np.mean( np.apply_along_axis( LegendreP1_quat, arr=vq, axis=0), axis=0  )
+    #out=0.0
+    #for i in range(ndat):
+    #    out+=LegendreP1_quat(vq[i])
+    #return out/ndat
 
 def average_anisotropic_tensor_old(vq, qframe=(1,0,0,0)):
     ndat=vq.shape[0]
@@ -207,8 +208,8 @@ def conduct_exponential_fit(xlist, ylist, C0, C1):
     guess=obtain_exponential_guess(xguess, yguess, C1)
     print( '= = = guessed initial tau: ', guess )
     fitOut = fmin_powell(powell_expdecay, guess, args=(xlist, ylist, C0, C1), full_output=True)
-    print( '= = = = Tau obtained: ', fitOut[0] )
-    return fitOut[0]
+    print( '= = = = Tau obtained: ', fitOut[0][0] )
+    return fitOut[0][0]
 
 def get_flex_bounds(x, samples, nsig=1):
     """
@@ -667,7 +668,9 @@ if __name__ == '__main__':
         #Model 2 where the frame is rotated to match a particular PAF frame.
         print( "= = = Running exponential fitting of fully anisotropic D..." )
         taus=np.array([ conduct_exponential_fit(out_dtlist,out_aniso2list[i], 0.5, 0.5) for i in range(3) ])
-        models=build_model_curves(anisotropic_decay_noc, taus, out_dtlist)
+        models=anisotropic_decay_noc(out_dtlist[np.newaxis,:], taus[:,np.newaxis])
+        print(models.shape)
+        #models=build_model_curves(anisotropic_decay_noc, taus, out_dtlist)
         #print_model_fits_aniso(out_pref+"-aniso2.dat",
         #                 out_dtlist, out_aniso2list, models, taus)
         if bDoSubchunk:
